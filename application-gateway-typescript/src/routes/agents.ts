@@ -41,7 +41,12 @@ function requireRole(peer: string, role: string) {
 router.post('/did/bootstrap', async (req: any, res, next) => {
   try {
     const peer = peerFromReq(req);
-    const did = await ensureDidKey(peer);
+
+    // NEW: allow forcing a fresh DID via { "new": true } and optional { "keyType": "ed25519" }
+    const forceNew: boolean = !!req.body?.new;
+    const keyType = req.body?.keyType as ('bls12381g2' | 'ed25519') | undefined;
+
+    const did = await ensureDidKey(peer, { forceNew, key_type: keyType });
     const pub = await getPublicDid(peer);
     const didToStore = pub ?? did;
 
@@ -56,14 +61,12 @@ router.post('/did/bootstrap', async (req: any, res, next) => {
       const url = `${base}/storeDIDkey/${encodeURIComponent(didToStore)}`;
 
       try {
-        // reuse the same Authorization header so verifyToken passes
         const { data } = await axios.post(url, undefined, {
           headers: { authorization: String(req.headers.authorization || '') }
         });
         stored = true;
         storeResult = data;
       } catch (e: any) {
-        // idempotency: if it already exists on-chain, treat as stored
         const msg = e?.response?.data?.error || e?.message || '';
         if (/already exists|exists/i.test(msg)) {
           stored = true;
@@ -73,7 +76,7 @@ router.post('/did/bootstrap', async (req: any, res, next) => {
       }
     }
 
-    res.json({ peer, did: didToStore, stored, storeResult });
+    res.json({ peer, did: didToStore, new: forceNew, keyType: keyType ?? 'bls12381g2', stored, storeResult });
   } catch (e) { next(e); }
 });
 
@@ -949,6 +952,315 @@ router.get('/proofs/records', async (req: any, res, next) => {
     next(e);
   }
 });
+
+
+
+//verifier: verify presentation consent validity
+// --- helpers to parse DIF presentation shapes (reuse your earlier helpers style) ---
+
+
+
+function extractIssuerDidAny(rec: any): string | null {
+  // by_format DIF
+  const a =
+    rec?.by_format?.pres?.dif?.verifiablePresentation?.verifiableCredential?.[0]?.issuer
+    ?? rec?.by_format?.pres?.dif?.presentation?.verifiableCredential?.[0]?.issuer;
+  if (typeof a === 'string' && a.length) return a;
+
+  // raw DIDComm attachment
+  const b =
+    rec?.pres?.['presentations~attach']?.[0]?.data?.json?.verifiableCredential?.[0]?.issuer
+    ?? rec?.presentation?.['presentations~attach']?.[0]?.data?.json?.verifiableCredential?.[0]?.issuer;
+  if (typeof b === 'string' && b.length) return b;
+
+  return null;
+}
+
+function extractVerifiedFlag(rec: any): boolean | undefined {
+  // Aca-Py commonly sets one of these:
+  if (typeof rec?.verified === 'boolean') return rec.verified;
+  if (typeof rec?.verified === 'string') return rec.verified === 'true';
+  const v = rec?.by_format?.pres?.dif?.verified;
+  if (typeof v === 'boolean') return v;
+  if (typeof v === 'string') return v === 'true';
+  return undefined;
+}
+
+// Pick most recent record (updated_at or created_at)
+function sortByRecency(a: any, b: any) {
+  const ta = Date.parse(a?.updated_at || a?.created_at || 0);
+  const tb = Date.parse(b?.updated_at || b?.created_at || 0);
+  return tb - ta;
+}
+
+// --- POST /agent/proofs/verify ---
+router.post('/proofs/verify', async (req: any, res, next) => {
+  try {
+    const peer = peerFromReq(req);
+    requireRole(peer, 'verifier');
+
+    const { consentId, purpose = 'treatment', operation = 'read' } = req.body || {};
+    if (!consentId) return res.status(400).json({ error: 'consentId is required' });
+
+    // 1) Find a completed/verified proof exchange that contains this consentId
+    const records = await listProofEx(peer);
+    const candidates = records
+      .filter((r: any) => ['done', 'verified', 'presentation-received'].includes(String(r?.state || '')))
+      .sort(sortByRecency);
+
+    let matched: any | null = null;
+    for (const r of candidates) {
+      const cid = extractConsentIdAny(r);
+      if (cid && String(cid) === String(consentId)) {
+        matched = r;
+        break;
+      }
+    }
+
+    // if not found in the list view, try fetching details of the latest "done" records to double-check
+    if (!matched) {
+      const base = getAgentConfig(peer).baseUrl;
+      for (const r of candidates.slice(0, 5)) {
+        const id = r.pres_ex_id || r.presentation_exchange_id || r._id;
+        try {
+          const { data: rec } = await axios.get(`${base}/present-proof-2.0/records/${encodeURIComponent(id)}`);
+          const cid = extractConsentIdAny(rec);
+          if (cid && String(cid) === String(consentId)) {
+            matched = rec;
+            break;
+          }
+        } catch {/* ignore */}
+      }
+    }
+
+    if (!matched) {
+      return res.status(404).json({ error: 'vp_not_found_for_consentId', message: `No VP found for consentId "${consentId}".` });
+    }
+
+    const verified = extractVerifiedFlag(matched);
+    if (!verified) {
+      return res.status(409).json({ error: 'vp_not_verified', message: 'Presentation exists but is not verified=true.' });
+    }
+
+    // 2) Extract issuer DID from the VP and check it on-chain (revocation / existence)
+    const issuerDid =
+      extractIssuerDidAny(matched) ||
+      null;
+
+    if (!issuerDid) {
+      return res.status(422).json({ error: 'issuer_missing', message: 'Issuer DID not present in VP.' });
+    }
+
+    // Call local /readDIDkey/:did (reuse auth header for verifyToken)
+    const selfBase = `${req.protocol}://${req.get('host')}`;
+    let didDoc: any = null;
+
+    try {
+      const { data } = await axios.get(
+        `${selfBase}/readDIDkey/${encodeURIComponent(issuerDid)}`,
+        { headers: { authorization: String(req.headers.authorization || '') } }
+      );
+      // Some environments may serialize as string; normalize to object
+      didDoc = typeof data === 'string' ? JSON.parse(data) : data;
+    } catch (e: any) {
+      const status = e?.response?.status || 500;
+      if (status === 404) {
+        return res.status(404).json({
+          error: 'issuer_not_on_chain',
+          message: 'Issuer cannot be verified on-chain.'
+        });
+      }
+      // Don’t bubble as 500 without context—return a clear lookup error
+      return res.status(status).json({
+        error: 'issuer_lookup_failed',
+        message: e?.response?.data?.error || e?.message || 'Failed to retrieve issuer DID from chain'
+      });
+    }
+
+    // Explicit handling for revoked issuer DID (include when & last tx if present)
+    if (didDoc?.revoked === true) {
+      const when = didDoc?.revokedTimestamp || didDoc?.auditTrail?.find((a: any) => a?.revoked)?.timestamp || null;
+      const txId = didDoc?.auditTrail?.find((a: any) => a?.revoked)?.txId || null;
+      return res.status(409).json({
+        error: 'did_revoked',
+        message: 'Issuer DID is revoked on-chain.',
+        revokedTimestamp: when,
+        revokedTxId: txId
+      });
+    }
+
+
+    // 3) Check consent on-chain via /verifyAndLogAccess (expects result: true)
+    try {
+      const { data: ver } = await axios.post(
+        `${selfBase}/verifyAndLogAccess`,
+        {
+          assetId: String(consentId),
+          accessRequest: JSON.stringify({ purpose, operation })
+        },
+        { headers: { authorization: String(req.headers.authorization || '') } }
+      );
+
+      if (ver?.result === true) {
+        // ✅ everything passed
+        return res.json({
+          active: true,
+          consentId,
+          issuerDid,
+          vp_verified: true,
+          chain: { issuer_revoked: false },
+          consent_check: { result: true, reason: ver?.reason ?? 'ok', validUntil: ver?.validUntil ?? null }
+        });
+      }
+
+      // Map common failure reasons from your chaincode service
+      const reason = String(ver?.reason || ver?.status || 'unknown');
+      if (/revoked/i.test(reason)) {
+        return res.status(409).json({ error: 'consent_revoked', message: 'Consent is revoked on-chain.', details: ver });
+      }
+      if (/expired/i.test(reason)) {
+        return res.status(409).json({ error: 'expired', message: 'Consent is expired on-chain.', details: ver });
+      }
+      if (/not[_\s-]?found|unknown/i.test(reason)) {
+        return res.status(404).json({ error: 'consent_not_found', message: 'Consent does not exist on-chain.', details: ver });
+      }
+
+      // generic not-allowed / policy mismatch
+      return res.status(403).json({ error: 'consent_not_allowed', message: 'Consent policy denied access.', details: ver });
+    } catch (e: any) {
+      // bubble up verifier service errors
+      if (e?.response) {
+        const st = e.response.status || 500;
+        return res.status(st).json({ error: 'consent_check_failed', details: e.response.data });
+      }
+      throw e;
+    }
+  } catch (e) {
+    next(e);
+  }
+});
+
+
+
+
+// Holder revoke
+// POST /agent/proofs/revoke  (holder black box)
+router.post('/proofs/revoke', async (req: any, res, next) => {
+  try {
+    const peer = peerFromReq(req);
+    requireRole(peer, 'holder');
+
+    const { consentId, seed, privateKeyPem: bodyPrivPem } = req.body || {};
+    if (!consentId) return res.status(400).json({ error: 'consentId is required' });
+    if (!seed && !bodyPrivPem) {
+      return res.status(400).json({ error: 'Provide either seed (base64/utf8) or privateKeyPem' });
+    }
+
+    // We’ll call our own API; reuse the same auth header so verifyToken passes
+    const selfBase = `${req.protocol}://${req.get('host')}`;
+    const authHdr  = { authorization: String(req.headers.authorization || '') };
+
+    // 1) Fetch anchor to get createdTimestamp (the exact timestamp used in signatures)
+    let anchor: any;
+    try {
+      const { data } = await axios.get(
+        `${selfBase}/readVcAnchor/${encodeURIComponent(consentId)}`,
+        { headers: authHdr }
+      );
+      anchor = data;
+    } catch (e: any) {
+      const st = e?.response?.status || 500;
+      const msg = String(e?.response?.data?.error || e?.message || '').toLowerCase();
+
+      // map "not found" situations to a clean 404
+      if (st === 404 || msg.includes('not found') || msg.includes('does not exist')) {
+        return res.status(404).json({
+          error: 'consent_not_found_on_chain',
+          message: `Consent "${consentId}" does not exist on the blockchain`
+        });
+      }
+      // otherwise propagate the real error
+      throw e;
+    }
+
+
+    const timestamp: string | undefined = anchor?.createdTimestamp;
+    const status: string | undefined    = anchor?.status;
+
+    if (!timestamp) {
+      return res.status(422).json({ error: 'created_timestamp_missing', message: 'Anchor has no createdTimestamp' });
+    }
+    if (status && String(status).toLowerCase() !== 'active') {
+      return res.status(409).json({ error: 'already_not_active', message: `Anchor status is ${status}` });
+    }
+
+    // 2) Derive or accept keypair
+    let privateKeyPem = bodyPrivPem;
+    let publicKeyPem: string | undefined;
+
+    if (!privateKeyPem) {
+      // derive from seed
+      try {
+        const { data: kp } = await axios.post(
+          `${selfBase}/deriveKeypair`,
+          { seed, assetId: String(consentId) },
+          { headers: authHdr }
+        );
+        privateKeyPem = kp?.privateKeyPem;
+        publicKeyPem  = kp?.publicKeyPem;
+        if (!privateKeyPem || !publicKeyPem) {
+          return res.status(500).json({ error: 'keypair_derivation_failed' });
+        }
+      } catch (e) {
+        return res.status(500).json({ error: 'keypair_derivation_failed' });
+      }
+    }
+
+    // If caller supplied a privateKeyPem but not publicKeyPem, we can lazily compute it via /deriveKeypair
+    if (!publicKeyPem && seed) {
+      try {
+        const { data: kp2 } = await axios.post(
+          `${selfBase}/deriveKeypair`,
+          { seed, assetId: String(consentId) },
+          { headers: authHdr }
+        );
+        publicKeyPem = kp2?.publicKeyPem;
+      } catch {/* non-fatal; some ledgers may not validate pub on submit */}
+    }
+
+    // 3) Sign the action "assetId|timestamp"
+    let signature: string;
+    try {
+      const { data: sig } = await axios.post(
+        `${selfBase}/signVcAnchorAction`,
+        { assetId: String(consentId), timestamp: String(timestamp), privateKeyPem },
+        { headers: authHdr }
+      );
+      signature = sig?.signature;
+      if (!signature) return res.status(500).json({ error: 'sign_failed' });
+    } catch (e) {
+      return res.status(500).json({ error: 'sign_failed' });
+    }
+
+    // 4) Revoke on-chain
+    try {
+      const payload: any = { assetId: String(consentId), signature };
+      if (publicKeyPem) payload.publicKeyPem = publicKeyPem;
+
+      const { data } = await axios.post(`${selfBase}/revokeVcAnchor`, payload, { headers: authHdr });
+      // expected: { message: "VC anchor <id> revoked at <iso>" }
+      return res.json({ revoked: true, consentId, message: data?.message || 'revoked' });
+    } catch (e: any) {
+      // surface ledger reasons
+      const st = e?.response?.status || 500;
+      const details = e?.response?.data || e?.message;
+      return res.status(st).json({ revoked: false, error: 'revoke_failed', details });
+    }
+  } catch (e) {
+    next(e);
+  }
+});
+
 
 
 export default router;
