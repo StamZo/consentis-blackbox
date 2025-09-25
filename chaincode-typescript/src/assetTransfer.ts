@@ -53,7 +53,7 @@ export class VcAnchorContract extends Contract {
         const data = await ctx.stub.getState(assetId);
         if (!data || data.length === 0) throw new Error(`DID key ${assetId} does not exist`);
         const anchor: DID = JSON.parse(data.toString());
-        if (anchor.revoked) throw new Error('DID key is revoked.');
+        // if (anchor.revoked) throw new Error('DID key is revoked.');
         return data.toString();
     }
 
