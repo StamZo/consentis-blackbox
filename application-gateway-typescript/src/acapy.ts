@@ -61,23 +61,31 @@ export function hasRole(peer: PeerId, needed: string): boolean {
 
 
 // ---- DID management ----
-export async function ensureDidKey(peer: PeerId) {
+export async function ensureDidKey(
+  peer: PeerId,
+  opts?: { forceNew?: boolean; key_type?: 'bls12381g2' | 'ed25519' }
+) {
   const c = clientFor(peer);
-  // try get public first
-  try {
-    const { data } = await c.get('/wallet/did/public');
-    if (data?.result?.did) return data.result.did as string;
-  } catch { /* ignore */ }
+  const forceNew = !!opts?.forceNew;
+  const keyType  = opts?.key_type ?? 'bls12381g2';
 
-  // create did:key
+  // If not forcing a new DID, try to return the existing public DID
+  if (!forceNew) {
+    try {
+      const { data } = await c.get('/wallet/did/public');
+      if (data?.result?.did) return data.result.did as string;
+    } catch { /* ignore */ }
+  }
+
+  // Create did:key (new if forceNew=true, or first time)
   const { data: created } = await c.post('/wallet/did/create', {
     method: 'key',
-    options: { key_type: 'bls12381g2' } // or 'ed25519' if you prefer
+    options: { key_type: keyType }
   });
   const did = created?.result?.did;
   if (!did) throw new Error('ACA-Py: failed to create DID');
 
-  // set public
+  // Set it as public
   await c.post(`/wallet/did/public?did=${encodeURIComponent(did)}`);
   return did as string;
 }
@@ -87,6 +95,7 @@ export async function getPublicDid(peer: PeerId) {
   const { data } = await c.get('/wallet/did/public');
   return data?.result?.did || null;
 }
+
 
 // ---- Connections / OOB ----
 export async function createInvitation(peer: PeerId, alias = 'oob', autoAccept = true) {
