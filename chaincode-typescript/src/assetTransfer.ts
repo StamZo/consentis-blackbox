@@ -104,7 +104,7 @@ export class VcAnchorContract extends Contract {
         assuranceLevel: string | null = null,
         allowedPurposeJson: string = '[]',
         allowedOperationJson: string = '[]', 
-        accessRequestHash: string | null = null
+        //accessRequestHash: string | null = null
     ): Promise<string> {
 
         const durationSecs = Number(durationSecsStr);
