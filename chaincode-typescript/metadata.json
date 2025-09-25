@@ -1,0 +1,247 @@
+{
+    "$schema": "https://hyperledger.github.io/fabric-chaincode-node/main/api/contract-schema.json",
+    "contracts": {
+        "AssetTransferContract": {
+            "name": "AssetTransferContract",
+            "contractInstance": {
+                "name": "AssetTransferContract",
+                "default": true
+            },
+            "transactions": [
+                {
+                    "tag": [
+                        "SUBMIT",
+                        "submitTx"
+                    ],
+                    "parameters": [],
+                    "name": "InitLedger"
+                },
+                {
+                    "tag": [
+                        "SUBMIT",
+                        "submitTx"
+                    ],
+                    "parameters": [
+                        {
+                            "name": "id",
+                            "description": "",
+                            "schema": {
+                                "type": "string"
+                            }
+                        },
+                        {
+                            "name": "data",
+                            "description": "",
+                            "schema": {
+                                "type": "string"
+                            }
+                        },
+                        {
+                            "name": "owner",
+                            "description": "",
+                            "schema": {
+                                "type": "string"
+                            }
+                        },
+                        {
+                            "name": "allowedorgs",
+                            "description": "",
+                            "schema": {
+                                "type": "string"
+                            }
+                        }
+                    ],
+                    "name": "CreateAsset"
+                },
+                {
+                    "tag": [
+                        "EVALUATE"
+                    ],
+                    "parameters": [
+                        {
+                            "name": "id",
+                            "description": "",
+                            "schema": {
+                                "type": "string"
+                            }
+                        }
+                    ],
+                    "name": "ReadAsset"
+                },
+                {
+                    "tag": [
+                        "SUBMIT",
+                        "submitTx"
+                    ],
+                    "parameters": [
+                        {
+                            "name": "id",
+                            "description": "",
+                            "schema": {
+                                "type": "string"
+                            }
+                        }
+                    ],
+                    "name": "DeleteAsset"
+                },
+                {
+                    "tag": [
+                        "SUBMIT",
+                        "submitTx"
+                    ],
+                    "parameters": [
+                        {
+                            "name": "id",
+                            "description": "",
+                            "schema": {
+                                "type": "string"
+                            }
+                        },
+                        {
+                            "name": "allowedOrgs",
+                            "description": "",
+                            "schema": {
+                                "type": "string"
+                            }
+                        }
+                    ],
+                    "name": "UpdateAssetAllowedOrgs"
+                },
+                {
+                    "returns": {
+                        "type": "boolean"
+                    },
+                    "name": "AssetExists",
+                    "tag": [
+                        "EVALUATE"
+                    ],
+                    "parameters": [
+                        {
+                            "name": "id",
+                            "description": "",
+                            "schema": {
+                                "type": "string"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "returns": {
+                        "type": "boolean"
+                    },
+                    "name": "OwnerExists",
+                    "tag": [
+                        "EVALUATE"
+                    ],
+                    "parameters": [
+                        {
+                            "name": "checkOwner",
+                            "description": "",
+                            "schema": {
+                                "type": "string"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "returns": {
+                        "type": "string"
+                    },
+                    "name": "GetAllAssets",
+                    "tag": [
+                        "EVALUATE"
+                    ],
+                    "parameters": []
+                },
+                {
+                    "returns": {
+                        "type": "string"
+                    },
+                    "name": "GetAssetHistory",
+                    "tag": [
+                        "EVALUATE"
+                    ],
+                    "parameters": [
+                        {
+                            "name": "id",
+                            "description": "",
+                            "schema": {
+                                "type": "string"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "tag": [
+                        "SUBMIT",
+                        "submitTx"
+                    ],
+                    "parameters": [
+                        {
+                            "name": "makePublic",
+                            "description": "",
+                            "schema": {
+                                "type": "string"
+                            }
+                        }
+                    ],
+                    "name": "ToggleAssetPermissions"
+                },
+                {
+                    "returns": {
+                        "type": "string"
+                    },
+                    "name": "updateOwnerScore",
+                    "tag": [
+                        "SUBMIT",
+                        "submitTx"
+                    ],
+                    "parameters": [
+                        {
+                            "name": "owner",
+                            "description": "",
+                            "schema": {
+                                "type": "string"
+                            }
+                        },
+                        {
+                            "name": "score",
+                            "description": "",
+                            "schema": {
+                                "type": "number"
+                            }
+                        }
+                    ]
+                }
+            ],
+            "info": {
+                "title": "AssetTransfer",
+                "description": "Smart contract for trading assets",
+                "name": "AssetTransferContract",
+                "version": ""
+            }
+        },
+        "org.hyperledger.fabric": {
+            "name": "org.hyperledger.fabric",
+            "contractInstance": {
+                "name": "org.hyperledger.fabric"
+            },
+            "transactions": [
+                {
+                    "name": "GetMetadata"
+                }
+            ],
+            "info": {
+                "title": "",
+                "version": ""
+            }
+        }
+    },
+    "info": {
+        "version": "1.0.0",
+        "title": "asset-transfer-basic"
+    },
+    "components": {
+        "schemas": {}
+    }
+}

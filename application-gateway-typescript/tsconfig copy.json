@@ -1,0 +1,21 @@
+// {
+//     //put extends in here to work with wallet 
+//     //"extends": "@tsconfig/node14/tsconfig.json",
+//     "compilerOptions": {
+//       "experimentalDecorators": true,
+//       "emitDecoratorMetadata": true,
+//       "outDir": "dist",
+//       "moduleResolution": "node",
+//       "declaration": true,
+//       "sourceMap": true,
+//       "noImplicitAny": true,
+//       "esModuleInterop": true  
+//     },
+//     "include": [
+//       "./src/**/*"
+//     ],
+//     "exclude": [
+//       "./src/**/*.spec.ts"
+//     ]
+//   }
+  
