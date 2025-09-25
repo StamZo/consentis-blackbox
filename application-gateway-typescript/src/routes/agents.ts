@@ -223,7 +223,7 @@ router.post('/proofs/request', async (req: any, res, next) => {
     const {
       alias,
       purpose = 'We need to check consent validity',
-      name, // optional human-readable name
+      name = `Consent check for ${alias}`, // optional human-readable name
       presentation_definition,
       options
     } = req.body || {};
