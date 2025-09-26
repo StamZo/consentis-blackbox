@@ -108,11 +108,22 @@ export async function createInvitation(peer: PeerId, alias = 'oob', autoAccept =
   return data; // contains invitation + record
 }
 
-export async function receiveInvitation(peer: PeerId, invitation: any) {
+
+
+export async function receiveInvitation(peer: PeerId, invitation: any, alias?: string) {
   const c = clientFor(peer);
-  const { data } = await c.post('/out-of-band/receive-invitation', invitation);
+  // Construct the URL with alias as a query param if provided
+  let url = '/out-of-band/receive-invitation';
+  if (alias) {
+    url += `?alias=${encodeURIComponent(alias)}`;
+  }
+  const { data } = await c.post(url, invitation);
   return data;
 }
+
+
+
+
 
 export async function listConnections(peer: PeerId, limit = 100, offset = 0) {
   const c = clientFor(peer);
