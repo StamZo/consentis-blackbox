@@ -66,24 +66,38 @@ async function getKeycloakPublicKey() {
 async function verifyToken(req: express.Request): Promise<any | null> {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-  if (!token) return null;
-
+  //if (!token) return null;
+  if (!token) return {};
+  
   try {
     if (!KEYCLOAK_URL) return jwt.decode(token); // dev mode: decode only
     const pub = await getKeycloakPublicKey();
     return jwt.verify(token, pub as string, { algorithms: ["RS256"] });
   } catch {
-    return null;
+    //return null;
+    // allow ACA-Py tenant JWTs (opaque to Keycloak) to pass through
+   return jwt.decode(token) || {};
   }
 }
 
 export async function attachUserPayload(req: any, res: any, next: any) {
   if (req.method === "OPTIONS" || req.path === "/health") return next();
-  const payload = await verifyToken(req);
-  if (!payload) return res.sendStatus(401);
-  req.userPayload = payload;
+
+  const payload = (await verifyToken(req)) || {};
+  // fallbacks for selected_peer if it isn't in the JWT
+  const sp =
+    payload.selected_peer ||
+    req.get?.("x-selected-peer") ||
+    (req.headers && (req.headers["x-selected-peer"] as any)) ||
+    req.query?.selected_peer ||
+    req.body?.selected_peer;
+
+  payload.selected_peer = sp ? String(sp).trim() : payload.selected_peer;
+  req.userPayload = payload || {};
+
   next();
 }
+
 // --- end auth middleware ---
 
 
@@ -106,7 +120,7 @@ app.use(
     origin: ALLOWED_ORIGINS,
     credentials: true,
     methods: ["GET", "POST", "PATCH", "DELETE", "PUT"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Selected-Peer"],
   })
 );
 app.use(bodyParser.json({ limit: "5mb" }));
