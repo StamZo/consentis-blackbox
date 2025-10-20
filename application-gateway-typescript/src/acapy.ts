@@ -10,6 +10,9 @@ export interface AcapyConfig {
   timeoutMs?: number;
 }
 
+
+
+
 // Read once at startup, supports any number of agents.
 function loadAgents(): Record<PeerId, AcapyConfig> {
   // Preferred: a single JSON env with all agents
@@ -50,6 +53,17 @@ export function clientFor(peer: PeerId): AxiosInstance {
   if (cfg.apiKey) headers['X-API-Key'] = cfg.apiKey;
   return axios.create({ baseURL: cfg.baseUrl, timeout: cfg.timeoutMs ?? 15000, headers });
 }
+export function clientForReq(req: any, peer: PeerId) {
+  const baseUrl = getAgentConfig(peer).baseUrl; // you already have this
+  const headers: any = { 'Content-Type': 'application/json' };
+
+  // pass through the tenant token from the caller
+  const bearer = req.headers?.authorization;
+  if (bearer) headers.Authorization = bearer;
+
+  return axios.create({ baseURL: baseUrl, headers });
+}
+
 
 // Optional helper for role checks
 export function hasRole(peer: PeerId, needed: string): boolean {
@@ -61,11 +75,11 @@ export function hasRole(peer: PeerId, needed: string): boolean {
 
 
 // ---- DID management ----
-export async function ensureDidKey(
+export async function ensureDidKey(req: any,
   peer: PeerId,
   opts?: { forceNew?: boolean; key_type?: 'bls12381g2' | 'ed25519' }
 ) {
-  const c = clientFor(peer);
+  const c = clientForReq(req, peer);
   const forceNew = !!opts?.forceNew;
   const keyType  = opts?.key_type ?? 'bls12381g2';
 
@@ -90,16 +104,16 @@ export async function ensureDidKey(
   return did as string;
 }
 
-export async function getPublicDid(peer: PeerId) {
-  const c = clientFor(peer);
+export async function getPublicDid(req: any, peer: PeerId) {
+  const c = clientForReq(req, peer);
   const { data } = await c.get('/wallet/did/public');
   return data?.result?.did || null;
 }
 
 
 // ---- Connections / OOB ----
-export async function createInvitation(peer: PeerId, alias = 'oob', autoAccept = true) {
-  const c = clientFor(peer);
+export async function createInvitation(req: any, peer: PeerId, alias = 'oob', autoAccept = true) {
+  const c = clientForReq(req, peer);
   const { data } = await c.post(`/out-of-band/create-invitation${autoAccept ? '?auto_accept=true' : ''}`, {
     alias,
     handshake_protocols: ['https://didcomm.org/didexchange/1.0'],
@@ -110,8 +124,8 @@ export async function createInvitation(peer: PeerId, alias = 'oob', autoAccept =
 
 
 
-export async function receiveInvitation(peer: PeerId, invitation: any, alias?: string) {
-  const c = clientFor(peer);
+export async function receiveInvitation(req: any, peer: PeerId, invitation: any, alias?: string) {
+  const c = clientForReq(req, peer);
   // Construct the URL with alias as a query param if provided
   let url = '/out-of-band/receive-invitation';
   if (alias) {
@@ -125,15 +139,15 @@ export async function receiveInvitation(peer: PeerId, invitation: any, alias?: s
 
 
 
-export async function listConnections(peer: PeerId, limit = 100, offset = 0) {
-  const c = clientFor(peer);
+export async function listConnections(req: any, peer: PeerId, limit = 100, offset = 0) {
+  const c = clientForReq(req, peer);
   const { data } = await c.get(`/connections?limit=${limit}&offset=${offset}`);
   return data?.results ?? [];
 }
 
 // ---- Issue credential (W3C LD) ----
-export async function issueCredentialLd(peer: PeerId, connection_id: string, credential: any, proofType = 'BbsBlsSignature2020') {
-  const c = clientFor(peer);
+export async function issueCredentialLd(req: any, peer: PeerId, connection_id: string, credential: any, proofType = 'BbsBlsSignature2020') {
+  const c = clientForReq(req, peer);
   const payload = {
     auto_remove: false,
     connection_id,
@@ -144,8 +158,8 @@ export async function issueCredentialLd(peer: PeerId, connection_id: string, cre
 }
 
 // ---- Verifier: request presentation (DIF PE) ----
-export async function requestPresentation(peer: PeerId, connection_id: string, presDef: any, opts?: { challenge?: string; domain?: string; auto_verify?: boolean }) {
-  const c = clientFor(peer);
+export async function requestPresentation(req: any, peer: PeerId, connection_id: string, presDef: any, opts?: { challenge?: string; domain?: string; auto_verify?: boolean }) {
+  const c = clientForReq(req, peer);
   const payload = {
     auto_remove: false,
     auto_verify: opts?.auto_verify ?? true,
@@ -162,13 +176,13 @@ export async function requestPresentation(peer: PeerId, connection_id: string, p
 }
 
 // ---- Records helpers ----
-export async function listCredEx(peer: PeerId) {
-  const c = clientFor(peer);
+export async function listCredEx(req: any, peer: PeerId) {
+  const c = clientForReq(req, peer);
   const { data } = await c.get('/issue-credential-2.0/records');
   return data?.results ?? [];
 }
-export async function listProofEx(peer: PeerId) {
-  const c = clientFor(peer);
+export async function listProofEx(req: any, peer: PeerId) {
+  const c = clientForReq(req, peer);
   const { data } = await c.get('/present-proof-2.0/records');
   return data?.results ?? [];
 }
@@ -182,12 +196,13 @@ function cryptoRand() {
 }
 
 export async function sendPresentation(
+  req: any,
   peer: PeerId,
   pres_ex_id: string,
   record_ids: string[],
   opts?: { challenge?: string; domain?: string }
 ) {
-  const c = clientFor(peer);
+  const c = clientForReq(req, peer);
   const payload = {
     dif: {
       record_ids: record_ids || [],
