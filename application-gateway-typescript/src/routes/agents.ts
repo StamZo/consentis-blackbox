@@ -2,26 +2,30 @@
 import { Router } from 'express';
 import axios from 'axios';
 import {
-  clientFor, getAgentConfig, hasRole,
+  clientForReq, hasRole,
   ensureDidKey, getPublicDid,
   createInvitation, receiveInvitation,
   listConnections, issueCredentialLd,
-  requestPresentation, listCredEx, listProofEx,PeerId,sendPresentation
+  requestPresentation, listProofEx, PeerId,
 } from '../acapy';
 import * as crypto from 'crypto';
-
+import { ctx, } from '../helper/ctx';
+import { connectionIdFromAlias } from '../helper/connections';
 
 const router = Router();
 
 type CredCandidate = { record_id?: string; issuanceDate?: string; __created?: string };
 
-function peerFromReq(req: any): string {
-  const peer = String(req.userPayload?.selected_peer || '');
-  if (!peer) throw Object.assign(new Error('selected_peer missing'), { status: 400 });
-  // Optionally validate that peer exists:
-  getAgentConfig(peer); // throws 400 if unknown
-  return peer;
-}
+// export function peerFromReq(req: any): string {
+//   // prefer old behavior if present
+//   const fromJwt = req.userPayload?.selected_peer;
+//   // fallback to header or query when using ACA-Py Bearer
+//   const fromHdr = req.get?.('x-selected-peer') || req.headers['x-selected-peer'];
+//   const fromQry = (req.query?.selected_peer as string) || (req.body?.selected_peer as string);
+//   const v = String(fromJwt || fromHdr || fromQry || '').trim();
+//   if (v === '1' || v === '2' || v === '3') return v;
+//   throw Object.assign(new Error('selected_peer missing or invalid (expected 1/2/3)'), { status: 400 });
+// }
 
 // Role guards (capability based)
 function requireRole(peer: string, role: string) {
@@ -33,48 +37,70 @@ function requireRole(peer: string, role: string) {
 // DID bootstrap (any peer or guard if you want)
 // router.post('/did/bootstrap', async (req: any, res, next) => {
 //   try {
-//     const peer = peerFromReq(req);
+//     const { peer } = ctx(req);  
 //     const did = await ensureDidKey(peer);
 //     const pub = await getPublicDid(peer);
 //     res.json({ peer, did: pub ?? did });
 //   } catch (e) { next(e); }
 // });
 // DID bootstrap (+ optional persist to Fabric)
-router.post('/did/bootstrap', async (req: any, res, next) => {
+// /did/bootstrap
+// router.post('/did/bootstrap', async (req, res, next) => {
+//   try {
+//     const { peer, selfBase } = ctx(req);
+//     const forceNew = !!req.body?.new;
+//     const keyType  = req.body?.keyType as ('bls12381g2'|'ed25519')|undefined;
+
+//     const did = await ensureDidKey(req, peer, { forceNew, key_type: keyType });
+//     const pub = await getPublicDid(req, peer);
+//     const didToStore = pub ?? did;
+
+//     const persist = Boolean(req.body?.persist) || hasRole(peer, 'issuer');
+//     let stored = false, storeResult: any;
+
+//     if (persist) {
+//       const headers = {
+//         authorization: String(req.headers.authorization || ''),
+//         'x-selected-peer': String(peer)     // <-- forward the peer
+//       };
+//       try {
+//         const { data } = await axios.post(`${selfBase}/storeDIDkey/${encodeURIComponent(didToStore)}`, undefined, { headers });
+//         stored = true; storeResult = data;
+//       } catch (e: any) {
+//         const msg = e?.response?.data?.error || e?.message || '';
+//         if (/already exists|exists/i.test(msg)) stored = true; else throw e;
+//       }
+//     }
+
+//     res.json({ peer, did: didToStore, new: forceNew, keyType: keyType ?? 'bls12381g2', stored, storeResult });
+//   } catch (e) { next(e); }
+// });
+
+router.post('/did/bootstrap', async (req, res, next) => {
   try {
-    const peer = peerFromReq(req);
+    const { peer, authHdr, selfBase } = ctx(req);   // <- from ctx(req)
+    const forceNew = !!req.body?.new;
+    const keyType  = req.body?.keyType as ('bls12381g2'|'ed25519')|undefined;
 
-    // NEW: allow forcing a fresh DID via { "new": true } and optional { "keyType": "ed25519" }
-    const forceNew: boolean = !!req.body?.new;
-    const keyType = req.body?.keyType as ('bls12381g2' | 'ed25519') | undefined;
-
-    const did = await ensureDidKey(peer, { forceNew, key_type: keyType });
-    const pub = await getPublicDid(peer);
+    const did = await ensureDidKey(req, peer, { forceNew, key_type: keyType });
+    const pub = await getPublicDid(req, peer);
     const didToStore = pub ?? did;
 
-    // auto-persist for issuer, or when caller asks explicitly
     const persist = Boolean(req.body?.persist) || hasRole(peer, 'issuer');
-
-    let stored = false;
-    let storeResult: any = undefined;
+    let stored = false, storeResult: any;
 
     if (persist) {
-      const base = `${req.protocol}://${req.get('host')}`;
-      const url = `${base}/storeDIDkey/${encodeURIComponent(didToStore)}`;
-
+      const headers = { ...authHdr, 'x-selected-peer': String(peer) }; // <- build here
       try {
-        const { data } = await axios.post(url, undefined, {
-          headers: { authorization: String(req.headers.authorization || '') }
-        });
-        stored = true;
-        storeResult = data;
+        const { data } = await axios.post(
+          `${selfBase}/storeDIDkey/${encodeURIComponent(didToStore)}`,
+          undefined,
+          { headers }
+        );
+        stored = true; storeResult = data;
       } catch (e: any) {
         const msg = e?.response?.data?.error || e?.message || '';
-        if (/already exists|exists/i.test(msg)) {
-          stored = true;
-        } else {
-          throw e;
-        }
+        if (/already exists|exists/i.test(msg)) stored = true; else throw e;
       }
     }
 
@@ -86,21 +112,22 @@ router.post('/did/bootstrap', async (req: any, res, next) => {
 // Invitations
 router.post('/invitations/create', async (req: any, res, next) => {
   try {
-    const peer = peerFromReq(req);                  // typically issuer or verifier
+    const { peer } = ctx(req);           // typically issuer or verifier
     const { alias = 'oob', autoAccept = true } = req.body || {};
-    const inv = await createInvitation(peer, alias, !!autoAccept);
+    const inv = await createInvitation(req, peer, alias, !!autoAccept);
     res.json({ peer, ...inv });
   } catch (e) { next(e); }
 });
 
 router.post('/invitations/accept', async (req, res, next) => {
   try {
-    const peer = peerFromReq(req);  // holder agent peer
+    const { peer } = ctx(req);    // holder agent peer
     const { invitation, alias } = req.body || {};
     if (!invitation) {
       return res.status(400).json({ error: 'invitation required' });
     }
-    const out = await receiveInvitation(peer, invitation, alias);
+    const out = await receiveInvitation(req, peer, invitation, alias);
+
     res.json({ peer, ...out });
   } catch (e) {
     next(e);
@@ -114,17 +141,18 @@ router.post('/invitations/accept', async (req, res, next) => {
 
 
 // Connections
-router.get('/connections', async (req: any, res, next) => {
+router.get('/connections', async (req, res, next) => {
   try {
-    const peer = peerFromReq(req);
-    const list = await listConnections(peer);
-    res.json({ peer, results: list });
+    const { peer, c } = ctx(req);          // <- use c from ctx
+    const { data } = await c.get('/connections');
+    res.json({ peer, results: data?.results ?? [] });
   } catch (e) { next(e); }
 });
 
+
 // router.get('/connections', async (req: any, res, next) => {
 //   try {
-//     const peer = peerFromReq(req);
+//     const { peer } = ctx(req);  
 //     const list = await listConnections(peer);
 
 //     // Add a friendly alias field (fallback to their_label when alias is missing)
@@ -140,21 +168,22 @@ router.get('/connections', async (req: any, res, next) => {
 // });
 
 
-async function connectionIdFromAlias(peer: PeerId, alias: string): Promise<string> {
-  const c = clientFor(peer);
-  const { data } = await c.get('/connections', { params: { alias, state: 'active' } });
-  const list = data?.results || [];
-  if (!list.length) throw Object.assign(new Error(`No active connection with alias "${alias}"`), { status: 404 });
-  // pick the most recently updated/created
-  list.sort((a: any, b: any) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime());
-  return list[0].connection_id;
-}
+// async function connectionIdFromAlias(peer: PeerId, alias: string, req: any): Promise<string> {
+//   // const c = clientFor(peer);
+//   const c = clientForReq(req, peer);
+//   const { data } = await c.get('/connections', { params: { alias, state: 'active' } });
+//   const list = data?.results || [];
+//   if (!list.length) throw Object.assign(new Error(`No active connection with alias "${alias}"`), { status: 404 });
+//   // pick the most recently updated/created
+//   list.sort((a: any, b: any) => new Date(b.updated_at || b.created_at || 0).getTime() - new Date(a.updated_at || a.created_at || 0).getTime());
+//   return list[0].connection_id;
+// }
 // Issue credential (role gated)
 
 
 router.post('/credentials/issue', async (req: any, res, next) => {
   try {
-    const peer = peerFromReq(req);
+    const { peer, c } = ctx(req); 
     requireRole(peer, 'issuer');
 
     const { alias, holderDid, consentId, issuerDid, proofType = 'BbsBlsSignature2020' } = req.body || {};
@@ -163,13 +192,13 @@ router.post('/credentials/issue', async (req: any, res, next) => {
     }
 
     // 1) resolve alias -> connection_id
-    const connection_id = await connectionIdFromAlias(peer, alias);
+   const connection_id = await connectionIdFromAlias(c, alias);
 
     // 2) pick issuer DID (use provided, else latest public or ensure one)
     const issuer =
       issuerDid ||
-      (await getPublicDid(peer)) ||
-      (await ensureDidKey(peer));
+      (await getPublicDid(req, peer)) ||
+      (await ensureDidKey(req, peer));
 
     // 3) build a minimal, consistent LD credential
     const credential = {
@@ -188,7 +217,7 @@ router.post('/credentials/issue', async (req: any, res, next) => {
     };
 
     // 4) issue (re-using your existing function)
-    const out = await issueCredentialLd(peer, connection_id, credential, proofType);
+    const out = await issueCredentialLd(req, peer, connection_id, credential, proofType);
     res.json({ peer, issued: true, connection_id, issuer, result: out });
   } catch (e) { next(e); }
 });
@@ -229,7 +258,7 @@ function ensureConsentPurpose(presDef: any, purposeText: string, nameText?: stri
 
 router.post('/proofs/request', async (req: any, res, next) => {
   try {
-    const peer = peerFromReq(req);
+    const { peer, c } = ctx(req); 
     requireRole(peer, 'verifier');
 
     const {
@@ -242,12 +271,13 @@ router.post('/proofs/request', async (req: any, res, next) => {
 
     if (!alias) return res.status(400).json({ error: 'alias is required' });
 
-    const connection_id = await connectionIdFromAlias(peer, alias);
+    const connection_id = await connectionIdFromAlias(c, alias);
 
     // include name in PD construction
     const presDef = ensureConsentPurpose(presentation_definition, purpose, name);
 
-    const out = await requestPresentation(peer, connection_id, presDef, options);
+    const out = await requestPresentation(req, peer, connection_id, presDef, options);
+
     res.json({ peer, connection_id, requested: true, result: out });
   } catch (e) { next(e); }
 });
@@ -279,21 +309,22 @@ function pickRecordIds(cands: CredCandidate[]): string[] {
 
 router.get('/proofs/inbox', async (req: any, res, next) => {
   try {
-    const peer = peerFromReq(req);
+    const { peer, c } = ctx(req);
     requireRole(peer, 'holder');
 
-    const base = getAgentConfig(peer).baseUrl;
-
+    //const base = getAgentConfig(peer).baseUrl;
+    //const c = clientForReq(req, peer);
     // NEW: map connection_id -> alias (fallback to their_label)
-    const conns = await listConnections(peer);
+    const conns = await listConnections(req, peer);
     const aliasByConn: Record<string, string | null> = {};
-    for (const c of conns || []) {
-      const id = c?.connection_id;
-      if (id) aliasByConn[id] = c?.alias ?? c?.their_label ?? null;
+    for (const conn of conns || []) {
+      const id = conn?.connection_id;
+      if (id) aliasByConn[id] = conn?.alias ?? conn?.their_label ?? null;
     }
 
     // 1) Get all proof records
-    const { data } = await axios.get(`${base}/present-proof-2.0/records`);
+    // const { data } = await axios.get(`${base}/present-proof-2.0/records`);
+    const { data } = await c.get('/present-proof-2.0/records');
     const records = (data?.results || []).filter((r: any) => r.state === 'request-received');
 
     const results: any[] = [];
@@ -302,9 +333,10 @@ router.get('/proofs/inbox', async (req: any, res, next) => {
       const pres_ex_id = r.pres_ex_id || r.presentation_exchange_id || r._id;
 
       // 2) Query candidate credentials for this proof exchange
-      const { data: cands } = await axios.get(
-        `${base}/present-proof-2.0/records/${encodeURIComponent(pres_ex_id)}/credentials`
-      );
+      // const { data: cands } = await axios.get(
+      //   `${base}/present-proof-2.0/records/${encodeURIComponent(pres_ex_id)}/credentials`
+      // );
+      const { data: cands } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(pres_ex_id)}/credentials`);
 
       const norm = (cands || []).map((c: any) => ({
         record_id: c.record_id,
@@ -355,10 +387,11 @@ router.get('/proofs/inbox', async (req: any, res, next) => {
 
 router.post('/proofs/send', async (req: any, res, next) => {
   try {
-    const peer = peerFromReq(req);
+    const { peer, c } = ctx(req);
     requireRole(peer, 'holder');
 
-    const base = getAgentConfig(peer).baseUrl;
+    // const base = getAgentConfig(peer).baseUrl;
+    // const c = clientForReq(req, peer);
     const body = req.body || {};
 
     // pres_ex_id optional; if absent we’ll use the latest request-received
@@ -367,7 +400,8 @@ router.post('/proofs/send', async (req: any, res, next) => {
 
     // If nothing provided, fall back to the latest request-received
     if (!pres_ex_id) {
-      const { data } = await axios.get(`${base}/present-proof-2.0/records`);
+      // const { data } = await axios.get(`${base}/present-proof-2.0/records`);
+      const { data } = await c.get('/present-proof-2.0/records');
       const reqs: any[] = (data?.results || []).filter((r: any) => r.state === 'request-received');
       if (reqs.length === 0) return res.status(404).json({ error: 'No pending proof requests' });
 
@@ -382,9 +416,10 @@ router.post('/proofs/send', async (req: any, res, next) => {
     // 1) Read the proof record to know the input_descriptor ids
     let descriptorIds: string[] = [];
     try {
-      const { data: rec } = await axios.get(
-        `${base}/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}`
-      );
+      // const { data: rec } = await axios.get(
+      //   `${base}/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}`
+      // );
+      const { data: rec } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}`);
       const defs =
         rec?.by_format?.pres_request?.dif?.presentation_definition?.input_descriptors ||
         rec?.pres_request?.dif?.presentation_definition?.input_descriptors ||
@@ -394,9 +429,10 @@ router.post('/proofs/send', async (req: any, res, next) => {
     } catch { /* non-fatal */ }
 
     // 2) Fetch candidates for this exchange
-    const { data: cands } = await axios.get(
-      `${base}/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}/credentials`
-    );
+    // const { data: cands } = await axios.get(
+    //   `${base}/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}/credentials`
+    // );
+    const { data: cands } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(pres_ex_id)}/credentials`);
 
     // 3) Normalize (keep the raw candidate so we can inspect multiple shapes)
     type Candidate = {
@@ -458,10 +494,11 @@ router.post('/proofs/send', async (req: any, res, next) => {
     // Do NOT include options (challenge/domain). ACA-Py already has them on the exchange.
     const payload = { dif: difPayload };
 
-    const { data: sent } = await axios.post(
-      `${base}/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}/send-presentation`,
-      payload
-    );
+    // const { data: sent } = await axios.post(
+    //   `${base}/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}/send-presentation`,
+    //   payload
+    // );
+    const { data: sent } = await c.post(`/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}/send-presentation`, payload);
 
     return res.json({
       peer,
@@ -540,22 +577,23 @@ function extractConsentIdAny(rec: any): string | null {
 
 router.get('/proofs/records', async (req: any, res, next) => {
   try {
-    const peer = peerFromReq(req);
+    const { peer, c } = ctx(req);
     requireRole(peer, 'verifier');
 
     const { state } = req.query as { state?: string };
-    const records = await listProofEx(peer);
+    const records = await listProofEx(req, peer);
     const filtered = state ? records.filter((r: any) => r?.state === String(state)) : records;
 
     // build a map of connection_id -> alias (fallback to their_label)
-    const conns = await listConnections(peer);
+    const conns = await listConnections(req, peer);
     const aliasByConn: Record<string, string | null> = {};
     for (const c of conns || []) {
       const id = c?.connection_id;
       if (id) aliasByConn[id] = c?.alias ?? c?.their_label ?? null;
     }
 
-    const base = getAgentConfig(peer).baseUrl;
+    //const base = getAgentConfig(peer).baseUrl;
+    // const c = clientForReq(req, peer);
 
     const detailed = await Promise.all(
       filtered.map(async (r: any) => {
@@ -566,9 +604,10 @@ router.get('/proofs/records', async (req: any, res, next) => {
         if (!consentId) {
           const id = r.pres_ex_id || r.presentation_exchange_id || r._id;
           try {
-            const { data: rec } = await axios.get(
-              `${base}/present-proof-2.0/records/${encodeURIComponent(id)}`
-            );
+            //const { data: rec } = await axios.get(
+            //  `${base}/present-proof-2.0/records/${encodeURIComponent(id)}`
+            //);
+            const {  data: rec  } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(id)}`);
             consentId = extractConsentIdAny(rec);
           } catch {
             // ignore; leave as null
@@ -640,17 +679,291 @@ function sortByRecency(a: any, b: any) {
   return tb - ta;
 }
 
+// // --- POST /agent/proofs/verify ---
+// router.post('/proofs/verify', async (req: any, res, next) => {
+//   try {
+//     const { peer, c } = ctx(req);  
+//     requireRole(peer, 'verifier');
+
+//     const { consentId, purpose = 'treatment', operation = 'read' } = req.body || {};
+//     if (!consentId) return res.status(400).json({ error: 'consentId is required' });
+
+//     // 1) Find a completed/verified proof exchange that contains this consentId
+//     const records = await listProofEx(req, peer);
+//     const candidates = records
+//       .filter((r: any) => ['done', 'verified', 'presentation-received'].includes(String(r?.state || '')))
+//       .sort(sortByRecency);
+
+//     let matched: any | null = null;
+//     for (const r of candidates) {
+//       const cid = extractConsentIdAny(r);
+//       if (cid && String(cid) === String(consentId)) {
+//         matched = r;
+//         break;
+//       }
+//     }
+
+//     // if not found in the list view, try fetching details of the latest "done" records to double-check
+//     if (!matched) {
+//       //const base = getAgentConfig(peer).baseUrl;
+//       // const { c } = ctx(req);
+//       for (const r of candidates.slice(0, 5)) {
+//         const id = r.pres_ex_id || r.presentation_exchange_id || r._id;
+//         try {
+//           // const { data: rec } = await axios.get(`${base}/present-proof-2.0/records/${encodeURIComponent(id)}`);
+//           const { data: rec } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(id)}`);
+//           const cid = extractConsentIdAny(rec);
+//           if (cid && String(cid) === String(consentId)) {
+//             matched = rec;
+//             break;
+//           }
+//         } catch {/* ignore */}
+//       }
+//     }
+
+//     if (!matched) {
+//       return res.status(404).json({ error: 'vp_not_found_for_consentId', message: `No VP found for consentId "${consentId}".` });
+//     }
+
+//     const verified = extractVerifiedFlag(matched);
+//     if (!verified) {
+//       return res.status(409).json({ error: 'vp_not_verified', message: 'Presentation exists but is not verified=true.' });
+//     }
+
+//     // 2) Extract issuer DID from the VP and check it on-chain (revocation / existence)
+//     const issuerDid =
+//       extractIssuerDidAny(matched) ||
+//       null;
+
+//     if (!issuerDid) {
+//       return res.status(422).json({ error: 'issuer_missing', message: 'Issuer DID not present in VP.' });
+//     }
+
+//     // Call local /readDIDkey/:did (reuse auth header for verifyToken)
+//     const selfBase = `${req.protocol}://${req.get('host')}`;
+//     let didDoc: any = null;
+
+//     try {
+//       const { data } = await c.get(
+//         `/readDIDkey/${encodeURIComponent(issuerDid)}`,
+//       );
+//       // Some environments may serialize as string; normalize to object
+//       didDoc = typeof data === 'string' ? JSON.parse(data) : data;
+//     } catch (e: any) {
+//       const status = e?.response?.status || 500;
+//       if (status === 404) {
+//         return res.status(404).json({
+//           error: 'issuer_not_on_chain',
+//           message: 'Issuer cannot be verified on-chain.'
+//         });
+//       }
+//       // Don’t bubble as 500 without context—return a clear lookup error
+//       return res.status(status).json({
+//         error: 'issuer_lookup_failed',
+//         message: e?.response?.data?.error || e?.message || 'Failed to retrieve issuer DID from chain'
+//       });
+//     }
+
+//     // Explicit handling for revoked issuer DID (include when & last tx if present)
+//     if (didDoc?.revoked === true) {
+//       const when = didDoc?.revokedTimestamp || didDoc?.auditTrail?.find((a: any) => a?.revoked)?.timestamp || null;
+//       const txId = didDoc?.auditTrail?.find((a: any) => a?.revoked)?.txId || null;
+//       return res.status(409).json({
+//         error: 'did_revoked',
+//         message: 'Issuer DID is revoked on-chain.',
+//         revokedTimestamp: when,
+//         revokedTxId: txId
+//       });
+//     }
+
+
+//     // 3) Check consent on-chain via /verifyAndLogAccess (expects result: true)
+//     try {
+//       const { data: ver } = await axios.post(
+//         `${selfBase}/verifyAndLogAccess`,
+//         {
+//           assetId: String(consentId),
+//           accessRequest: JSON.stringify({ purpose, operation })
+//         },
+//         { headers: { authorization: String(req.headers.authorization || '') } }
+//       );
+
+//       if (ver?.result === true) {
+//         // ✅ everything passed
+//         return res.json({
+//           active: true,
+//           consentId,
+//           issuerDid,
+//           vp_verified: true,
+//           chain: { issuer_revoked: false },
+//           consent_check: { result: true, reason: ver?.reason ?? 'ok', validUntil: ver?.validUntil ?? null }
+//         });
+//       }
+
+//       // Map common failure reasons from your chaincode service
+//       const reason = String(ver?.reason || ver?.status || 'unknown');
+//       if (/revoked/i.test(reason)) {
+//         return res.status(409).json({ error: 'consent_revoked', message: 'Consent is revoked on-chain.', details: ver });
+//       }
+//       if (/expired/i.test(reason)) {
+//         return res.status(409).json({ error: 'expired', message: 'Consent is expired on-chain.', details: ver });
+//       }
+//       if (/not[_\s-]?found|unknown/i.test(reason)) {
+//         return res.status(404).json({ error: 'consent_not_found', message: 'Consent does not exist on-chain.', details: ver });
+//       }
+
+//       // generic not-allowed / policy mismatch
+//       return res.status(403).json({ error: 'consent_not_allowed', message: 'Consent policy denied access.', details: ver });
+//     } catch (e: any) {
+//       // bubble up verifier service errors
+//       if (e?.response) {
+//         const st = e.response.status || 500;
+//         return res.status(st).json({ error: 'consent_check_failed', details: e.response.data });
+//       }
+//       throw e;
+//     }
+//   } catch (e) {
+//     next(e);
+//   }
+// });
+
+
+
+
+// // --- POST /agent/proofs/verify ---
+// router.post('/proofs/verify', async (req: any, res, next) => {
+//   try {
+//     const { peer, c, authHdr, selfBase } = ctx(req);
+//     requireRole(peer, 'verifier');
+
+//     const { consentId, purpose = 'treatment', operation = 'read' } = req.body || {};
+//     if (!consentId) return res.status(400).json({ error: 'consentId is required' });
+
+//     // 1) Find a completed/verified proof exchange that contains this consentId
+//     const records = await listProofEx(req, peer);
+//     const candidates = records
+//       .filter((r: any) => ['done', 'verified', 'presentation-received'].includes(String(r?.state || '')))
+//       .sort(sortByRecency);
+
+//     let matched: any | null = null;
+//     for (const r of candidates) {
+//       const cid = extractConsentIdAny(r);
+//       if (cid && String(cid) === String(consentId)) { matched = r; break; }
+//     }
+
+//     // Fallback: fetch a few latest records in detail
+//     if (!matched) {
+//       for (const r of candidates.slice(0, 5)) {
+//         const id = r.pres_ex_id || r.presentation_exchange_id || r._id;
+//         try {
+//           const { data: rec } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(id)}`);
+//           const cid = extractConsentIdAny(rec);
+//           if (cid && String(cid) === String(consentId)) { matched = rec; break; }
+//         } catch { /* ignore */ }
+//       }
+//     }
+
+//     if (!matched) {
+//       return res.status(404).json({ error: 'vp_not_found_for_consentId', message: `No VP found for consentId "${consentId}".` });
+//     }
+
+//     const verified = extractVerifiedFlag(matched);
+//     if (!verified) {
+//       return res.status(409).json({ error: 'vp_not_verified', message: 'Presentation exists but is not verified=true.' });
+//     }
+
+//     // 2) Extract issuer DID from the VP and check it on-chain
+//     const issuerDid = extractIssuerDidAny(matched) || null;
+//     if (!issuerDid) {
+//       return res.status(422).json({ error: 'issuer_missing', message: 'Issuer DID not present in VP.' });
+//     }
+
+//     // Look up issuer DID on-chain via our own API (forward auth + selected peer)
+//     const commonHeaders = { ...authHdr, 'x-selected-peer': String(peer) };
+//     let didDoc: any = null;
+//     try {
+//       const { data } = await axios.get(
+//         `${selfBase}/readDIDkey/${encodeURIComponent(issuerDid)}`,
+//         { headers: commonHeaders }
+//       );
+//       didDoc = typeof data === 'string' ? JSON.parse(data) : data;
+//     } catch (e: any) {
+//       const status = e?.response?.status || 500;
+//       if (status === 404) {
+//         return res.status(404).json({ error: 'issuer_not_on_chain', message: 'Issuer cannot be verified on-chain.' });
+//       }
+//       return res.status(status).json({
+//         error: 'issuer_lookup_failed',
+//         message: e?.response?.data?.error || e?.message || 'Failed to retrieve issuer DID from chain'
+//       });
+//     }
+
+//     if (didDoc?.revoked === true) {
+//       const when = didDoc?.revokedTimestamp || didDoc?.auditTrail?.find((a: any) => a?.revoked)?.timestamp || null;
+//       const txId = didDoc?.auditTrail?.find((a: any) => a?.revoked)?.txId || null;
+//       return res.status(409).json({
+//         error: 'did_revoked',
+//         message: 'Issuer DID is revoked on-chain.',
+//         revokedTimestamp: when,
+//         revokedTxId: txId
+//       });
+//     }
+
+//     // 3) Check consent on-chain via /verifyAndLogAccess (must forward selected peer!)
+//     try {
+//       const { data: ver } = await axios.post(
+//         `${selfBase}/verifyAndLogAccess`,
+//         {
+//           assetId: String(consentId),
+//           accessRequest: JSON.stringify({ purpose, operation })
+//         },
+//         { headers: commonHeaders }
+//       );
+
+//       if (ver?.result === true) {
+//         return res.json({
+//           active: true,
+//           consentId,
+//           issuerDid,
+//           vp_verified: true,
+//           chain: { issuer_revoked: false },
+//           consent_check: {
+//             result: true,
+//             reason: ver?.reason ?? 'ok',
+//             validUntil: ver?.validUntil ?? null
+//           }
+//         });
+//       }
+
+//       const reason = String(ver?.reason || ver?.status || 'unknown');
+//       if (/revoked/i.test(reason)) return res.status(409).json({ error: 'consent_revoked', message: 'Consent is revoked on-chain.', details: ver });
+//       if (/expired/i.test(reason)) return res.status(409).json({ error: 'expired', message: 'Consent is expired on-chain.', details: ver });
+//       if (/not[_\s-]?found|unknown/i.test(reason)) return res.status(404).json({ error: 'consent_not_found', message: 'Consent does not exist on-chain.', details: ver });
+
+//       return res.status(403).json({ error: 'consent_not_allowed', message: 'Consent policy denied access.', details: ver });
+//     } catch (e: any) {
+//       if (e?.response) {
+//         const st = e.response.status || 500;
+//         return res.status(st).json({ error: 'consent_check_failed', details: e.response.data });
+//       }
+//       throw e;
+//     }
+//   } catch (e) {
+//     next(e);
+//   }
+// });
+
 // --- POST /agent/proofs/verify ---
 router.post('/proofs/verify', async (req: any, res, next) => {
   try {
-    const peer = peerFromReq(req);
+    const { peer, c, authHdr, selfBase } = ctx(req);
     requireRole(peer, 'verifier');
 
     const { consentId, purpose = 'treatment', operation = 'read' } = req.body || {};
     if (!consentId) return res.status(400).json({ error: 'consentId is required' });
 
     // 1) Find a completed/verified proof exchange that contains this consentId
-    const records = await listProofEx(peer);
+    const records = await listProofEx(req, peer);
     const candidates = records
       .filter((r: any) => ['done', 'verified', 'presentation-received'].includes(String(r?.state || '')))
       .sort(sortByRecency);
@@ -658,25 +971,18 @@ router.post('/proofs/verify', async (req: any, res, next) => {
     let matched: any | null = null;
     for (const r of candidates) {
       const cid = extractConsentIdAny(r);
-      if (cid && String(cid) === String(consentId)) {
-        matched = r;
-        break;
-      }
+      if (cid && String(cid) === String(consentId)) { matched = r; break; }
     }
 
-    // if not found in the list view, try fetching details of the latest "done" records to double-check
+    // Fallback: fetch a few latest records in detail
     if (!matched) {
-      const base = getAgentConfig(peer).baseUrl;
       for (const r of candidates.slice(0, 5)) {
         const id = r.pres_ex_id || r.presentation_exchange_id || r._id;
         try {
-          const { data: rec } = await axios.get(`${base}/present-proof-2.0/records/${encodeURIComponent(id)}`);
+          const { data: rec } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(id)}`);
           const cid = extractConsentIdAny(rec);
-          if (cid && String(cid) === String(consentId)) {
-            matched = rec;
-            break;
-          }
-        } catch {/* ignore */}
+          if (cid && String(cid) === String(consentId)) { matched = rec; break; }
+        } catch { /* ignore */ }
       }
     }
 
@@ -689,42 +995,32 @@ router.post('/proofs/verify', async (req: any, res, next) => {
       return res.status(409).json({ error: 'vp_not_verified', message: 'Presentation exists but is not verified=true.' });
     }
 
-    // 2) Extract issuer DID from the VP and check it on-chain (revocation / existence)
-    const issuerDid =
-      extractIssuerDidAny(matched) ||
-      null;
-
+    // 2) Extract issuer DID from the VP and check it on-chain
+    const issuerDid = extractIssuerDidAny(matched) || null;
     if (!issuerDid) {
       return res.status(422).json({ error: 'issuer_missing', message: 'Issuer DID not present in VP.' });
     }
 
-    // Call local /readDIDkey/:did (reuse auth header for verifyToken)
-    const selfBase = `${req.protocol}://${req.get('host')}`;
+    // Look up issuer DID on-chain via our own API (forward auth + selected peer)
+    const commonHeaders = { ...authHdr, 'x-selected-peer': String(peer) };
     let didDoc: any = null;
-
     try {
       const { data } = await axios.get(
         `${selfBase}/readDIDkey/${encodeURIComponent(issuerDid)}`,
-        { headers: { authorization: String(req.headers.authorization || '') } }
+        { headers: commonHeaders }
       );
-      // Some environments may serialize as string; normalize to object
       didDoc = typeof data === 'string' ? JSON.parse(data) : data;
     } catch (e: any) {
       const status = e?.response?.status || 500;
       if (status === 404) {
-        return res.status(404).json({
-          error: 'issuer_not_on_chain',
-          message: 'Issuer cannot be verified on-chain.'
-        });
+        return res.status(404).json({ error: 'issuer_not_on_chain', message: 'Issuer cannot be verified on-chain.' });
       }
-      // Don’t bubble as 500 without context—return a clear lookup error
       return res.status(status).json({
         error: 'issuer_lookup_failed',
         message: e?.response?.data?.error || e?.message || 'Failed to retrieve issuer DID from chain'
       });
     }
 
-    // Explicit handling for revoked issuer DID (include when & last tx if present)
     if (didDoc?.revoked === true) {
       const when = didDoc?.revokedTimestamp || didDoc?.auditTrail?.find((a: any) => a?.revoked)?.timestamp || null;
       const txId = didDoc?.auditTrail?.find((a: any) => a?.revoked)?.txId || null;
@@ -736,8 +1032,7 @@ router.post('/proofs/verify', async (req: any, res, next) => {
       });
     }
 
-
-    // 3) Check consent on-chain via /verifyAndLogAccess (expects result: true)
+    // 3) Check consent on-chain via /verifyAndLogAccess (must forward selected peer!)
     try {
       const { data: ver } = await axios.post(
         `${selfBase}/verifyAndLogAccess`,
@@ -745,37 +1040,31 @@ router.post('/proofs/verify', async (req: any, res, next) => {
           assetId: String(consentId),
           accessRequest: JSON.stringify({ purpose, operation })
         },
-        { headers: { authorization: String(req.headers.authorization || '') } }
+        { headers: commonHeaders }
       );
 
       if (ver?.result === true) {
-        // ✅ everything passed
         return res.json({
           active: true,
           consentId,
           issuerDid,
           vp_verified: true,
           chain: { issuer_revoked: false },
-          consent_check: { result: true, reason: ver?.reason ?? 'ok', validUntil: ver?.validUntil ?? null }
+          consent_check: {
+            result: true,
+            reason: ver?.reason ?? 'ok',
+            validUntil: ver?.validUntil ?? null
+          }
         });
       }
 
-      // Map common failure reasons from your chaincode service
       const reason = String(ver?.reason || ver?.status || 'unknown');
-      if (/revoked/i.test(reason)) {
-        return res.status(409).json({ error: 'consent_revoked', message: 'Consent is revoked on-chain.', details: ver });
-      }
-      if (/expired/i.test(reason)) {
-        return res.status(409).json({ error: 'expired', message: 'Consent is expired on-chain.', details: ver });
-      }
-      if (/not[_\s-]?found|unknown/i.test(reason)) {
-        return res.status(404).json({ error: 'consent_not_found', message: 'Consent does not exist on-chain.', details: ver });
-      }
+      if (/revoked/i.test(reason)) return res.status(409).json({ error: 'consent_revoked', message: 'Consent is revoked on-chain.', details: ver });
+      if (/expired/i.test(reason)) return res.status(409).json({ error: 'expired', message: 'Consent is expired on-chain.', details: ver });
+      if (/not[_\s-]?found|unknown/i.test(reason)) return res.status(404).json({ error: 'consent_not_found', message: 'Consent does not exist on-chain.', details: ver });
 
-      // generic not-allowed / policy mismatch
       return res.status(403).json({ error: 'consent_not_allowed', message: 'Consent policy denied access.', details: ver });
     } catch (e: any) {
-      // bubble up verifier service errors
       if (e?.response) {
         const st = e.response.status || 500;
         return res.status(st).json({ error: 'consent_check_failed', details: e.response.data });
@@ -789,12 +1078,125 @@ router.post('/proofs/verify', async (req: any, res, next) => {
 
 
 
+// // Holder revoke
+// // POST /agent/proofs/revoke  (holder black box)
+// router.post('/proofs/revoke', async (req: any, res, next) => {
+//   try {
+//     const { peer,selfBase, authHdr } = ctx(req);
+//     requireRole(peer, 'holder');
 
-// Holder revoke
+//     const { consentId, seed, privateKeyPem: bodyPrivPem } = req.body || {};
+//     if (!consentId) return res.status(400).json({ error: 'consentId is required' });
+//     if (!seed && !bodyPrivPem) {
+//       return res.status(400).json({ error: 'Provide either seed (base64/utf8) or privateKeyPem' });
+//     }
+
+//     // 1) Fetch anchor to get createdTimestamp (the exact timestamp used in signatures)
+//     let anchor: any;
+//     try {
+//       const { data } = await axios.get(
+//         `${selfBase}/readVcAnchor/${encodeURIComponent(consentId)}`,
+//         { headers: authHdr }
+//       );
+//       anchor = data;
+//     } catch (e: any) {
+//       const st = e?.response?.status || 500;
+//       const msg = String(e?.response?.data?.error || e?.message || '').toLowerCase();
+
+//       // map "not found" situations to a clean 404
+//       if (st === 404 || msg.includes('not found') || msg.includes('does not exist')) {
+//         return res.status(404).json({
+//           error: 'consent_not_found_on_chain',
+//           message: `Consent "${consentId}" does not exist on the blockchain`
+//         });
+//       }
+//       // otherwise propagate the real error
+//       throw e;
+//     }
+
+
+//     const timestamp: string | undefined = anchor?.createdTimestamp;
+//     const status: string | undefined    = anchor?.status;
+
+//     if (!timestamp) {
+//       return res.status(422).json({ error: 'created_timestamp_missing', message: 'Anchor has no createdTimestamp' });
+//     }
+//     if (status && String(status).toLowerCase() !== 'active') {
+//       return res.status(409).json({ error: 'already_not_active', message: `Anchor status is ${status}` });
+//     }
+
+//     // 2) Derive or accept keypair
+//     let privateKeyPem = bodyPrivPem;
+//     let publicKeyPem: string | undefined;
+
+//     if (!privateKeyPem) {
+//       // derive from seed
+//       try {
+//         const { data: kp } = await axios.post(
+//           `${selfBase}/deriveKeypair`,
+//           { seed, assetId: String(consentId) },
+//           { headers: authHdr }
+//         );
+//         privateKeyPem = kp?.privateKeyPem;
+//         publicKeyPem  = kp?.publicKeyPem;
+//         if (!privateKeyPem || !publicKeyPem) {
+//           return res.status(500).json({ error: 'keypair_derivation_failed' });
+//         }
+//       } catch (e) {
+//         return res.status(500).json({ error: 'keypair_derivation_failed' });
+//       }
+//     }
+
+//     // If caller supplied a privateKeyPem but not publicKeyPem, we can lazily compute it via /deriveKeypair
+//     if (!publicKeyPem && seed) {
+//       try {
+//         const { data: kp2 } = await axios.post(
+//           `${selfBase}/deriveKeypair`,
+//           { seed, assetId: String(consentId) },
+//           { headers: authHdr }
+//         );
+//         publicKeyPem = kp2?.publicKeyPem;
+//       } catch {/* non-fatal; some ledgers may not validate pub on submit */}
+//     }
+
+//     // 3) Sign the action "assetId|timestamp"
+//     let signature: string;
+//     try {
+//       const { data: sig } = await axios.post(
+//         `${selfBase}/signVcAnchorAction`,
+//         { assetId: String(consentId), timestamp: String(timestamp), privateKeyPem },
+//         { headers: authHdr }
+//       );
+//       signature = sig?.signature;
+//       if (!signature) return res.status(500).json({ error: 'sign_failed' });
+//     } catch (e) {
+//       return res.status(500).json({ error: 'sign_failed' });
+//     }
+
+//     // 4) Revoke on-chain
+//     try {
+//       const payload: any = { assetId: String(consentId), signature };
+//       if (publicKeyPem) payload.publicKeyPem = publicKeyPem;
+
+//       const { data } = await axios.post(`${selfBase}/revokeVcAnchor`, payload, { headers: authHdr });
+//       // expected: { message: "VC anchor <id> revoked at <iso>" }
+//       return res.json({ revoked: true, consentId, message: data?.message || 'revoked' });
+//     } catch (e: any) {
+//       // surface ledger reasons
+//       const st = e?.response?.status || 500;
+//       const details = e?.response?.data || e?.message;
+//       return res.status(st).json({ revoked: false, error: 'revoke_failed', details });
+//     }
+//   } catch (e) {
+//     next(e);
+//   }
+// });
+
+
 // POST /agent/proofs/revoke  (holder black box)
 router.post('/proofs/revoke', async (req: any, res, next) => {
   try {
-    const peer = peerFromReq(req);
+    const { peer, selfBase, authHdr } = ctx(req);
     requireRole(peer, 'holder');
 
     const { consentId, seed, privateKeyPem: bodyPrivPem } = req.body || {};
@@ -803,33 +1205,28 @@ router.post('/proofs/revoke', async (req: any, res, next) => {
       return res.status(400).json({ error: 'Provide either seed (base64/utf8) or privateKeyPem' });
     }
 
-    // We’ll call our own API; reuse the same auth header so verifyToken passes
-    const selfBase = `${req.protocol}://${req.get('host')}`;
-    const authHdr  = { authorization: String(req.headers.authorization || '') };
+    // Always forward selected peer + auth to our own endpoints
+    const headers = { ...authHdr, 'x-selected-peer': String(peer) };
 
     // 1) Fetch anchor to get createdTimestamp (the exact timestamp used in signatures)
     let anchor: any;
     try {
       const { data } = await axios.get(
         `${selfBase}/readVcAnchor/${encodeURIComponent(consentId)}`,
-        { headers: authHdr }
+        { headers }
       );
       anchor = data;
     } catch (e: any) {
       const st = e?.response?.status || 500;
       const msg = String(e?.response?.data?.error || e?.message || '').toLowerCase();
-
-      // map "not found" situations to a clean 404
       if (st === 404 || msg.includes('not found') || msg.includes('does not exist')) {
         return res.status(404).json({
           error: 'consent_not_found_on_chain',
           message: `Consent "${consentId}" does not exist on the blockchain`
         });
       }
-      // otherwise propagate the real error
       throw e;
     }
-
 
     const timestamp: string | undefined = anchor?.createdTimestamp;
     const status: string | undefined    = anchor?.status;
@@ -846,33 +1243,32 @@ router.post('/proofs/revoke', async (req: any, res, next) => {
     let publicKeyPem: string | undefined;
 
     if (!privateKeyPem) {
-      // derive from seed
       try {
         const { data: kp } = await axios.post(
           `${selfBase}/deriveKeypair`,
           { seed, assetId: String(consentId) },
-          { headers: authHdr }
+          { headers }
         );
         privateKeyPem = kp?.privateKeyPem;
         publicKeyPem  = kp?.publicKeyPem;
         if (!privateKeyPem || !publicKeyPem) {
           return res.status(500).json({ error: 'keypair_derivation_failed' });
         }
-      } catch (e) {
+      } catch {
         return res.status(500).json({ error: 'keypair_derivation_failed' });
       }
     }
 
-    // If caller supplied a privateKeyPem but not publicKeyPem, we can lazily compute it via /deriveKeypair
+    // If caller supplied a privateKeyPem but not publicKeyPem, compute via /deriveKeypair (non-fatal if fails)
     if (!publicKeyPem && seed) {
       try {
         const { data: kp2 } = await axios.post(
           `${selfBase}/deriveKeypair`,
           { seed, assetId: String(consentId) },
-          { headers: authHdr }
+          { headers }
         );
         publicKeyPem = kp2?.publicKeyPem;
-      } catch {/* non-fatal; some ledgers may not validate pub on submit */}
+      } catch {/* ignore */}
     }
 
     // 3) Sign the action "assetId|timestamp"
@@ -881,11 +1277,11 @@ router.post('/proofs/revoke', async (req: any, res, next) => {
       const { data: sig } = await axios.post(
         `${selfBase}/signVcAnchorAction`,
         { assetId: String(consentId), timestamp: String(timestamp), privateKeyPem },
-        { headers: authHdr }
+        { headers }
       );
       signature = sig?.signature;
       if (!signature) return res.status(500).json({ error: 'sign_failed' });
-    } catch (e) {
+    } catch {
       return res.status(500).json({ error: 'sign_failed' });
     }
 
@@ -894,11 +1290,9 @@ router.post('/proofs/revoke', async (req: any, res, next) => {
       const payload: any = { assetId: String(consentId), signature };
       if (publicKeyPem) payload.publicKeyPem = publicKeyPem;
 
-      const { data } = await axios.post(`${selfBase}/revokeVcAnchor`, payload, { headers: authHdr });
-      // expected: { message: "VC anchor <id> revoked at <iso>" }
+      const { data } = await axios.post(`${selfBase}/revokeVcAnchor`, payload, { headers });
       return res.json({ revoked: true, consentId, message: data?.message || 'revoked' });
     } catch (e: any) {
-      // surface ledger reasons
       const st = e?.response?.status || 500;
       const details = e?.response?.data || e?.message;
       return res.status(st).json({ revoked: false, error: 'revoke_failed', details });
