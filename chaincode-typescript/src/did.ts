@@ -9,7 +9,7 @@ export class DID {
     public didID: string; // base64 or hex-encoded public key (used as the primary key)
 
     @Property()
-    public creator: string; // base64 or hex-encoded public key (used as the primary key)
+    public creator: string; 
 
     @Property()
     public revoked: boolean = false;

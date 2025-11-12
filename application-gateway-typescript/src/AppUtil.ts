@@ -1,3 +1,5 @@
+// src/AppUtils.ts
+
 /*
  * Copyright IBM Corp. All Rights Reserved.
  *
@@ -7,6 +9,8 @@
 import { Wallet, Wallets } from 'fabric-network';
 import * as fs from 'fs';
 import * as path from 'path';
+
+
 
 const buildCCP = (orgNumber: number): Record<string, any> => {
     // Construct the path to the common connection configuration file dynamically

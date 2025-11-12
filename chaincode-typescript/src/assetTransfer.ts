@@ -12,6 +12,25 @@ import { VcAnchor, AuditEvent } from './asset';
 import { DID } from './did'; 
 import * as crypto from 'crypto';
 
+const IDX_ACTIVE = 'IDX:DID:ACTIVE';
+function invTs(createdMs: number): string {
+  const MAX = 9999999999999;                 // ~ Sat Nov 20 2286
+  return String(MAX - createdMs).padStart(13, '0');
+}
+function spkiDerSha256(publicKeyPem: string): string {
+  const der = crypto.createPublicKey(publicKeyPem)
+    .export({ type: 'spki', format: 'der' }) as Buffer;
+  return crypto.createHash('sha256').update(der).digest('hex');
+}
+function assertEdDsaKey(pem: string): 'ed25519' | 'ed448' {
+  const k = crypto.createPublicKey(pem);
+  const t = (k as any).asymmetricKeyType as string; // 'ed25519' | 'ed448' | 'rsa' | 'ec' | ...
+  if (t !== 'ed25519' && t !== 'ed448') {
+    throw new Error('Only EdDSA keys are supported (Ed25519 or Ed448)');
+  }
+  return t as 'ed25519' | 'ed448';
+}
+
 
 @Info({ title: 'VcAnchorContract', description: 'Smart contract for anchoring VCs with revocation by private key' })
 export class VcAnchorContract extends Contract {
@@ -42,8 +61,11 @@ export class VcAnchorContract extends Contract {
             revokedTimestamp: null,
             auditTrail: [{ timestamp: createdTimestamp, revoked: false, txId,  }]
         };
-
         await ctx.stub.putState(didID, Buffer.from(stringify(sortKeysRecursive(anchor))));
+        const createdMs = Date.parse(createdTimestamp);
+        if (!Number.isFinite(createdMs)) throw new Error('Invalid createdTimestamp');
+        const idxActiveKey = ctx.stub.createCompositeKey(IDX_ACTIVE, [anchor.creator, invTs(createdMs), didID]);
+        await ctx.stub.putState(idxActiveKey, Buffer.from('\x00'));
         return `DID for ${didID} created.`;
     }
 
@@ -52,7 +74,7 @@ export class VcAnchorContract extends Contract {
     public async readDIDkey(ctx: Context, assetId: string): Promise<string> {
         const data = await ctx.stub.getState(assetId);
         if (!data || data.length === 0) throw new Error(`DID key ${assetId} does not exist`);
-        const anchor: DID = JSON.parse(data.toString());
+        //const anchor: DID = JSON.parse(data.toString());
         // if (anchor.revoked) throw new Error('DID key is revoked.');
         return data.toString();
     }
@@ -76,7 +98,15 @@ export class VcAnchorContract extends Contract {
 
         // 2. Require createdTimestamp exists
         if (!anchor.createdTimestamp) throw new Error('Anchor missing creation timestamp.');
+      // drop ACTIVE secondary index row (no-op if it never existed)
+        try {
+          const createdMs = Date.parse(anchor.createdTimestamp);
+          if (!Number.isFinite(createdMs)) throw new Error('Invalid createdTimestamp');
+          // const idxActiveKey = ctx.stub.createCompositeKey('IDX:DID:ACTIVE', [anchor.creator, invTs(createdMs), didID]);
+          const idxActiveKey = ctx.stub.createCompositeKey(IDX_ACTIVE, [anchor.creator, invTs(createdMs), didID]);
 
+          await ctx.stub.deleteState(idxActiveKey);
+        } catch { /* ignore */ }
         // 3. Update revoked status, store revokedTimestamp
         anchor.revoked = true;
         const txId = ctx.stub.getTxID();
@@ -89,6 +119,25 @@ export class VcAnchorContract extends Contract {
         await ctx.stub.putState(didID, Buffer.from(stringify(sortKeysRecursive(anchor))));
         return `DID key ${didID} revoked at ${revokedTimestamp}`;
     }
+
+    @Transaction(false)
+    @Returns('string')
+    public async latestActiveDid(ctx: Context, creator: string): Promise<string> {
+      // const iter = await ctx.stub.getStateByPartialCompositeKey('IDX:DID:ACTIVE', [creator]);
+      const iter = await ctx.stub.getStateByPartialCompositeKey(IDX_ACTIVE, [creator]);
+      try {
+        const r = await iter.next();
+        if (r.done) throw new Error('No active DID for creator');
+        const { attributes } = ctx.stub.splitCompositeKey(r.value.key);
+        const didID = attributes[2];
+        return await this.readDIDkey(ctx, didID);
+      } finally {
+        await iter.close();
+      }
+    }
+
+
+
 
 
     // Create a VC anchor asset: assetId = public key, vcHash, revoked=false
@@ -124,7 +173,9 @@ export class VcAnchorContract extends Contract {
             throw new Error(`VC Anchor for assetId ${assetId} already exists`);
         }      
         // Hash the provided PEM public key to store as holderBindingHash
-        const holderBindingHash = crypto.createHash('sha256').update(publicKeyPem).digest('hex');
+        // const holderBindingHash = crypto.createHash('sha256').update(publicKeyPem).digest('hex');
+        assertEdDsaKey(publicKeyPem);
+        const holderBindingHash = spkiDerSha256(publicKeyPem);
 
 
         let allowedPurpose: string[] = [];
@@ -163,9 +214,7 @@ export class VcAnchorContract extends Contract {
                 revoked: false,
                 txId,
                 //accessRequestHash: null,
-                accessResult: null,
-                purpose: null,
-                operation: null
+                accessResult: null
             }]
         };
 
@@ -194,10 +243,17 @@ export class VcAnchorContract extends Contract {
         if (anchor.status !== 'active') throw new Error('VC anchor not active.');
 
         // Verify provided PEM matches stored hash
-        const providedHash = crypto.createHash('sha256').update(publicKeyPem).digest('hex');
+        // const providedHash = crypto.createHash('sha256').update(publicKeyPem).digest('hex');
+        // if (providedHash !== anchor.holderBindingHash) {
+        //     throw new Error('Provided public key does not match the bound hash.');
+        // }
+        // Verify provided key (SPKI DER hash) matches the bound hash
+        assertEdDsaKey(publicKeyPem);
+        const providedHash = spkiDerSha256(publicKeyPem);
         if (providedHash !== anchor.holderBindingHash) {
-            throw new Error('Provided public key does not match the bound hash.');
+          throw new Error('Provided public key does not match the bound hash.');
         }
+
 
         // Verify signature over (assetId + createdTimestamp)
         const message = Buffer.from(assetId + '|' + anchor.createdTimestamp, 'utf8');
@@ -217,9 +273,7 @@ export class VcAnchorContract extends Contract {
             revoked: true, 
             txId,
             //accessRequestHash: null,
-            accessResult: null,
-            purpose: null,
-            operation: null,
+            accessResult: null
         });
         await ctx.stub.putState(assetId, Buffer.from(stringify(sortKeysRecursive(anchor))));
         return `VC anchor ${assetId} revoked at ${revokedTimestamp}`;
@@ -332,8 +386,6 @@ export class VcAnchorContract extends Contract {
         revoked: null,
         txId,
         accessResult: result,
-        purpose: reqPurposesHash.length ? reqPurposesHash : null,
-        operation: reqOperationsHash.length ? reqOperationsHash : null,
         reason: reason
     });
 
@@ -352,125 +404,128 @@ export class VcAnchorContract extends Contract {
     return JSON.stringify(payload);
     }
 
-    @Transaction()
-public async CreateVcAnchorV2(
-  ctx: Context,
-  assetId: string,
-  publicKeyPem: string,
-  policyHash: string,
-  templateHash: string,
-  durationSecsStr: string,
-  assuranceLevel: string | null,   // keep if you want on-chain reporting
-  templateVersion: string,         // e.g., "v3"
-  constraintsSetJson: string       // '["<atomHex>", "<atomHex>", ...]'
-): Promise<string> {
-  const durationSecs = Number(durationSecsStr);
-  if (!Number.isFinite(durationSecs) || durationSecs <= 0) throw new Error('Invalid durationSecs');
+//     @Transaction()
+// public async CreateVcAnchorV2(
+//   ctx: Context,
+//   assetId: string,
+//   publicKeyPem: string,
+//   policyHash: string,
+//   templateHash: string,
+//   durationSecsStr: string,
+//   assuranceLevel: string | null,   // keep if you want on-chain reporting
+//   templateVersion: string,         // e.g., "v3"
+//   constraintsSetJson: string       // '["<atomHex>", "<atomHex>", ...]'
+// ): Promise<string> {
+//   const durationSecs = Number(durationSecsStr);
+//   if (!Number.isFinite(durationSecs) || durationSecs <= 0) throw new Error('Invalid durationSecs');
 
-  const callerMSPID = new ClientIdentity(ctx.stub).getMSPID().slice(0, -3);
-  if (callerMSPID !== 'Org1') throw new Error('Only an issuer can create a VC anchor');
+//   const callerMSPID = new ClientIdentity(ctx.stub).getMSPID().slice(0, -3);
+//   if (callerMSPID !== 'Org1') throw new Error('Only an issuer can create a VC anchor');
 
-  if (await this.AssetExists(ctx, assetId)) throw new Error(`VC Anchor ${assetId} exists`);
+//   if (await this.AssetExists(ctx, assetId)) throw new Error(`VC Anchor ${assetId} exists`);
 
-  // parse & bound
-  let constraintsSet: string[] = [];
-  try { constraintsSet = JSON.parse(constraintsSetJson) ?? []; } catch {}
-  // dedupe + sort for determinism; cap size
-  constraintsSet = Array.from(new Set(constraintsSet)).sort();
-  if (constraintsSet.length > 64) throw new Error('Too many constraint atoms');
+//   // parse & bound
+//   let constraintsSet: string[] = [];
+//   try { constraintsSet = JSON.parse(constraintsSetJson) ?? []; } catch {}
+//   // dedupe + sort for determinism; cap size
+//   constraintsSet = Array.from(new Set(constraintsSet)).sort();
+//   if (constraintsSet.length > 64) throw new Error('Too many constraint atoms');
 
-  const holderBindingHash = crypto.createHash('sha256').update(publicKeyPem).digest('hex');
-  const ts = ctx.stub.getTxTimestamp();
-  const createdDate = new Date(Number(ts.seconds) * 1000 + Math.round(ts.nanos / 1e6));
-  const createdTimestamp = createdDate.toISOString();
-  const validUntil = new Date(createdDate.getTime() + durationSecs * 1000).toISOString();
+//   // const holderBindingHash = crypto.createHash('sha256').update(publicKeyPem).digest('hex');
+//   const holderBindingHash = spkiDerSha256(publicKeyPem);
+//   const ts = ctx.stub.getTxTimestamp();
+//   const createdDate = new Date(Number(ts.seconds) * 1000 + Math.round(ts.nanos / 1e6));
+//   const createdTimestamp = createdDate.toISOString();
+//   const validUntil = new Date(createdDate.getTime() + durationSecs * 1000).toISOString();
 
-  const anchor: VcAnchor = {
-    docType: 'vcAnchor',
-    assetId,
-    creator: callerMSPID,
-    holderBindingHash,
-    policyHash,
-    templateHash,
-    validUntil,
-    status: 'active',
-    assuranceLevel: assuranceLevel || undefined,
-    constraintsSet,                 // <-- the generic, future-proof field
-    createdTimestamp,
-    revokedTimestamp: null,
-    auditTrail: [{
-      timestamp: createdTimestamp, revoked: false, txId: ctx.stub.getTxID(),
-      accessResult: null, purpose: null, operation: null
-    }]
-  };
+//   const anchor: VcAnchor = {
+//     docType: 'vcAnchor',
+//     assetId,
+//     creator: callerMSPID,
+//     holderBindingHash,
+//     policyHash,
+//     templateHash,
+//     validUntil,
+//     status: 'active',
+//     assuranceLevel: assuranceLevel || undefined,
+//     constraintsSet,                 // <-- the generic, future-proof field
+//     createdTimestamp,
+//     revokedTimestamp: null,
+//     auditTrail: [{
+//       timestamp: createdTimestamp, revoked: false, txId: ctx.stub.getTxID(),
+//       accessResult: null
+//     }]
+//   };
 
-  await ctx.stub.putState(assetId, Buffer.from(stringify(sortKeysRecursive(anchor))));
-  return `VC anchor for ${assetId} created.`;
-}
+//   await ctx.stub.putState(assetId, Buffer.from(stringify(sortKeysRecursive(anchor))));
+//   return `VC anchor for ${assetId} created.`;
+// }
 
-@Transaction()
-public async VerifyAndLogAccessV2(
-  ctx: Context,
-  assetId: string,
-  accessRequestJson: string // {"purpose":[...],"operation":[...],"constraints":{...}}
-): Promise<string> {        // return JSON
-  const cid = new ClientIdentity(ctx.stub);
-  if (cid.getMSPID().slice(0, -3) !== 'Org3') throw new Error('Only verifiers');
+// @Transaction()
+// public async VerifyAndLogAccessV2(
+//   ctx: Context,
+//   assetId: string,
+//   accessRequestJson: string // {"purpose":[...],"operation":[...],"constraints":{...}}
+// ): Promise<string> {        // return JSON
+//   const cid = new ClientIdentity(ctx.stub);
+//   this.Cid = new ClientIdentity(ctx.stub);
+//   const callerMSPID = this.Cid.getMSPID().slice(0, -3);
+//   if (callerMSPID !== 'Org3') throw new Error('Only verifiers');
 
-  const data = await ctx.stub.getState(assetId);
-  if (!data || data.length === 0) throw new Error('Anchor not found');
-  const anchor = JSON.parse(data.toString());
+//   const data = await ctx.stub.getState(assetId);
+//   if (!data || data.length === 0) throw new Error('Anchor not found');
+//   const anchor = JSON.parse(data.toString());
 
-  const ts = ctx.stub.getTxTimestamp();
-  const nowIso = new Date(Number(ts.seconds) * 1000 + Math.round(ts.nanos / 1e6)).toISOString();
-  if (anchor.status === 'active' && nowIso > anchor.validUntil) anchor.status = 'expired';
+//   const ts = ctx.stub.getTxTimestamp();
+//   const nowIso = new Date(Number(ts.seconds) * 1000 + Math.round(ts.nanos / 1e6)).toISOString();
+//   if (anchor.status === 'active' && nowIso > anchor.validUntil) anchor.status = 'expired';
 
-  let req: any = {};
-  try { req = JSON.parse(accessRequestJson) || {}; } catch {}
-  const toArray = (x:any) => Array.isArray(x) ? x : (x == null ? [] : [x]);
-  const norm = (s:string)=> String(s).trim().toLowerCase();
-  const SEP = '\u001F';
-  const atom = (k:string, v:string)=> crypto.createHash('sha256').update(k + SEP + v).digest('hex');
+//   let req: any = {};
+//   try { req = JSON.parse(accessRequestJson) || {}; } catch {}
+//   const toArray = (x:any) => Array.isArray(x) ? x : (x == null ? [] : [x]);
+//   const norm = (s:string)=> String(s).trim().toLowerCase();
+//   const SEP = '\u001F';
+//   const atom = (k:string, v:string)=> crypto.createHash('sha256').update(k + SEP + v).digest('hex');
 
-  // Build request atoms (subset we must satisfy)
-  const reqAtoms: string[] = [];
-  for (const p of toArray(req.purpose))   reqAtoms.push(atom('purpose',   norm(p)));
-  for (const o of toArray(req.operation)) reqAtoms.push(atom('operation', norm(o)));
-  if (req.constraints && typeof req.constraints === 'object') {
-    for (const [k,v] of Object.entries(req.constraints)) {
-      // canonicalize simple values. If arrays appear, emit per-item atoms instead.
-      const val = typeof v === 'string' ? norm(v) : JSON.stringify(v);
-      reqAtoms.push(atom(String(k), val));
-    }
-  }
+//   // Build request atoms (subset we must satisfy)
+//   const reqAtoms: string[] = [];
+//   for (const p of toArray(req.purpose))   reqAtoms.push(atom('purpose',   norm(p)));
+//   for (const o of toArray(req.operation)) reqAtoms.push(atom('operation', norm(o)));
+//   if (req.constraints && typeof req.constraints === 'object') {
+//     for (const [k,v] of Object.entries(req.constraints)) {
+//       // canonicalize simple values. If arrays appear, emit per-item atoms instead.
+//       const val = typeof v === 'string' ? norm(v) : JSON.stringify(v);
+//       reqAtoms.push(atom(String(k), val));
+//     }
+//   }
 
-  // Decision + reasons
-  let result = true;
-  let reason: string | null = null;
+//   // Decision + reasons
+//   let result = true;
+//   let reason: string | null = null;
 
-  if (anchor.status !== 'active') {
-    result = false; reason = anchor.status; // 'revoked' | 'expired'
-  } else {
-    const set: Set<string> = new Set(anchor.constraintsSet ?? []);
-    const allIn = reqAtoms.every(a => set.has(a));
-    if (!allIn) { result = false; reason = 'atoms_not_allowed'; }
-  }
+//   if (anchor.status !== 'active') {
+//     result = false; reason = anchor.status; // 'revoked' | 'expired'
+//   } else {
+//     const set: Set<string> = new Set(anchor.constraintsSet ?? []);
+//     const allIn = reqAtoms.every(a => set.has(a));
+//     if (!allIn) { result = false; reason = 'atoms_not_allowed'; }
+//   }
 
-  // Always log (store only hashes, no raw keys/values)
-  anchor.auditTrail.push({
-    timestamp: nowIso, revoked: null, txId: ctx.stub.getTxID(),
-    accessResult: result,
-    purpose: null, operation: null, // optional: keep null as we now log atoms generically
-    // you can add: constraintsAtoms: reqAtoms
-  });
+//   // Always log (store only hashes, no raw keys/values)
+//   anchor.auditTrail.push({
+//     timestamp: nowIso, revoked: null, txId: ctx.stub.getTxID(),
+//     accessResult: result,
+//     purpose: null, operation: null, // optional: keep null as we now log atoms generically
+//     // you can add: constraintsAtoms: reqAtoms
+//   });
 
-  await ctx.stub.putState(assetId, Buffer.from(stringify(sortKeysRecursive(anchor))));
-  ctx.stub.setEvent('AccessLogged', Buffer.from(JSON.stringify({ assetId, accessResult: result, reason, timestamp: nowIso })));
+//   await ctx.stub.putState(assetId, Buffer.from(stringify(sortKeysRecursive(anchor))));
+//   ctx.stub.setEvent('AccessLogged', Buffer.from(JSON.stringify({ assetId, accessResult: result, reason, timestamp: nowIso })));
 
-  return JSON.stringify({
-    result, reason, status: anchor.status, validUntil: anchor.validUntil
-  });
-}
+//   return JSON.stringify({
+//     result, reason, status: anchor.status, validUntil: anchor.validUntil
+//   });
+// }
 
 
 

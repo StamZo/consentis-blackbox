@@ -1,3 +1,5 @@
+// src/services/cryptography.ts
+
 import * as nodeCrypto from 'crypto';
 
 function toBuf(x: any): Buffer { return Buffer.isBuffer(x) ? x : Buffer.from(x); }
@@ -45,3 +47,4 @@ export function signVcAnchorAction(assetId: string, timestamp: string, privateKe
   const sig    = nodeCrypto.sign(null, Buffer.from(toSign, 'utf8'), keyObj); // Ed25519 raw
   return { assetId, timestamp, signature: sig.toString('base64'), toSign, alg: 'Ed25519' };
 }
+
