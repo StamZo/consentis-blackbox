@@ -1,0 +1,7 @@
+{
+  "index": { "fields": ["docType", "creator", "revoked", "createdTimestamp"] },
+  "ddoc": "didCreatorRevokedTs",
+  "name": "didCreatorRevokedTs",
+  "type": "json",
+  "partial_filter_selector": { "docType": "DID" }
+}
