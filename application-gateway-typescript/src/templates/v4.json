@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "purposes":   { "type": "array", "items": { "type": "string" } },
+    "operations": { "type": "array", "items": { "type": "string" } },
+    "durationSecs": { "type": "integer", "minimum": 60, "maximum": 94608000 },
+    "assuranceLevel": { "type": "string", "enum": ["AL1", "AL2", "AL3"] },
+    "legalFlags": {
+      "type": "object",
+      "properties": { "freelyGiven": { "type": "boolean" } },
+      "additionalProperties": false
+    },
+    "templateHash": { "type": "string" }
+  },
+  "required": ["purposes", "operations", "durationSecs"],
+  "additionalProperties": false
+}
