@@ -11,12 +11,13 @@ import cors from "cors";
 import bodyParser from "body-parser";
 import axios from "axios";
 import FabricCAServices from "fabric-ca-client";
+import helmet from "helmet";
 
 // Local modules (thin controllers call into these)
 import agentRouter from "./routes/agents";
 
 import issuerWebhooks from './routes/issuer-webhooks';
-import holderWebhooks from "./routes/holder-webhooks";
+//import holderWebhooks from "./routes/holder-webhooks";
 
 // Services
 import {
@@ -57,7 +58,7 @@ import {
 } from "./fabricWallet";
 // --- Auth middleware (inline for now) ---
 import jwt from "jsonwebtoken";
-
+import { resolvePeer } from "./helper/peers";
 
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL || "";
 
@@ -72,9 +73,16 @@ async function verifyToken(req: express.Request): Promise<any | null> {
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
   //if (!token) return null;
   if (!token) return {};
-  
+
   try {
-    if (!KEYCLOAK_URL) return jwt.decode(token); // dev mode: decode only
+    if (!KEYCLOAK_URL) {
+      const decoded: any = jwt.decode(token) || {};
+      // In dev mode (no KEYCLOAK_URL), at least reject clearly expired tokens if exp is present
+      if (decoded?.exp && Date.now() / 1000 > Number(decoded.exp)) {
+        throw new Error("JWT expired");
+      }
+      return decoded;
+    }
     const pub = await getKeycloakPublicKey();
     return jwt.verify(token, pub as string, { algorithms: ["RS256"] });
   } catch {
@@ -84,23 +92,50 @@ async function verifyToken(req: express.Request): Promise<any | null> {
   }
 }
 
+// export async function attachUserPayload(req: any, res: any, next: any) {
+//   if (req.method === "OPTIONS" || req.path === "/health") return next();
+
+//   const payload = (await verifyToken(req)) || {};
+//   // fallbacks for selected_peer if it isn't in the JWT
+//   const sp =
+//     payload.selected_peer ||
+//     req.get?.("x-selected-peer") ||
+//     (req.headers && (req.headers["x-selected-peer"] as any)) ||
+//     req.query?.selected_peer ||
+//     req.body?.selected_peer;
+
+//   // normalize selected_peer and validate membership
+//   const normalized = sp != null ? String(sp).trim() : undefined;
+//   const allowedPeers = new Set(["1", "2", "3"]);
+//   if (normalized && !allowedPeers.has(normalized)) {
+//     return res.status(400).json({ error: "Invalid x-selected-peer (allowed: 1,2,3)" });
+//   }
+
+//   payload.selected_peer = normalized ?? payload.selected_peer;
+//   req.userPayload = payload || {};
+
+//   next();
+// }
+
+
 export async function attachUserPayload(req: any, res: any, next: any) {
   if (req.method === "OPTIONS" || req.path === "/health") return next();
 
   const payload = (await verifyToken(req)) || {};
-  // fallbacks for selected_peer if it isn't in the JWT
   const sp =
-    payload.selected_peer ||
-    req.get?.("x-selected-peer") ||
-    (req.headers && (req.headers["x-selected-peer"] as any)) ||
-    req.query?.selected_peer ||
+    payload.selected_peer ??
+    req.get?.("x-selected-peer") ??
+    (req.headers && (req.headers["x-selected-peer"] as any)) ??
+    req.query?.selected_peer ??
     req.body?.selected_peer;
 
-  payload.selected_peer = sp ? String(sp).trim() : payload.selected_peer;
+  const normalized = resolvePeer(sp);
+  // Don’t hard-reject here; let ctx() enforce. But if we can normalize, persist it:
+  if (normalized) payload.selected_peer = normalized;
   req.userPayload = payload || {};
-
   next();
 }
+
 
 // --- end auth middleware ---
 
@@ -118,18 +153,21 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(",")
   : [];
 
+// Security headers
+app.use(helmet());
+
 // CORS + JSON
 app.use(
   cors({
     origin: ALLOWED_ORIGINS,
     credentials: true,
     methods: ["GET", "POST", "PATCH", "DELETE", "PUT"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Selected-Peer"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Selected-Peer", "x-selected-peer"],
   })
 );
 app.use(bodyParser.json({ limit: "5mb" }));
 app.use(issuerWebhooks); // mount issuer webhooks
-app.use(holderWebhooks); // mount holder webhooks
+//app.use(holderWebhooks); // mount holder webhooks
 
 
 // Health
@@ -153,7 +191,7 @@ app.post("/manageIdentities", async (req: Request, res: Response) => {
     const identityNameOrg = `${identityName}@org${selectedPeer}`;
 
     // Connect so fabric CA client has proper context
-    const gateway = await connectFor(payload)
+    gateway = await connectFor(payload);
 
     const ccp = buildCCP(Number(selectedPeer));
     const caClient = buildCAClient(FabricCAServices, ccp, `ca.org${selectedPeer}.example.com`);
