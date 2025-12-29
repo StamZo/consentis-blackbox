@@ -154,19 +154,73 @@ export async function createInvitation(req: any, peer: PeerId, alias = 'oob', au
 
 export async function receiveInvitation(req: any, peer: PeerId, invitation: any, alias?: string) {
   const c = clientForReq(req, peer);
-  let url = '/out-of-band/receive-invitation';
-  if (alias) url += `?alias=${encodeURIComponent(alias)}`;
-  // (Optional but harmless) prevent dup conns when re-accepting:
-  // invitation = { ...invitation, use_existing_connection: true };
+  let url = '/out-of-band/receive-invitation?use_existing_connection=true';
+  if (alias) url += `&alias=${encodeURIComponent(alias)}`;
   const { data } = await c.post(url, invitation);
   return data;
 }
 
 
 
-
-export async function listConnections(req: any, peer: PeerId, limit = 100, offset = 0) {
+export async function deleteConnectionById(
+  req: any,
+  peer: PeerId,
+  connectionId: string
+) {
   const c = clientForReq(req, peer);
+  const { data } = await c.delete(`/connections/${connectionId}`);
+  // ACA-Py often returns {}, so normalize:
+  return data ?? { deleted: true, connection_id: connectionId };
+}
+
+
+export async function deleteConnectionsByAlias(
+  req: any,
+  peer: PeerId,
+  alias: string,
+  opts?: { state?: string }
+) {
+  const c = clientForReq(req, peer);
+
+  const qp: string[] = [];
+  if (alias) qp.push(`alias=${encodeURIComponent(alias)}`);
+  if (opts?.state) qp.push(`state=${encodeURIComponent(opts.state)}`);
+  const query = qp.length ? `?${qp.join('&')}` : '';
+
+  const { data } = await c.get(`/connections${query}`);
+  const results: any[] = data?.results ?? [];
+
+  const deleted: string[] = [];
+  for (const conn of results) {
+    const id = conn.connection_id;
+    if (!id) continue;
+    await c.delete(`/connections/${id}`);
+    deleted.push(id);
+  }
+
+  return {
+    alias,
+    state: opts?.state ?? null,
+    count: deleted.length,
+    deleted,
+  };
+}
+
+
+// export async function listConnections(req: any, peer: PeerId, limit = 100, offset = 0) {
+//   const c = clientForReq(req, peer);
+//   const { data } = await c.get(`/connections?limit=${limit}&offset=${offset}`);
+//   return data?.results ?? [];
+// }
+
+export async function listConnections(
+  req: any,
+  peer: PeerId,
+  limit = 100,
+  offset = 0,
+  client?: any          // <-- NEW optional client
+) {
+  const c = client ?? clientForReq(req, peer);
   const { data } = await c.get(`/connections?limit=${limit}&offset=${offset}`);
   return data?.results ?? [];
 }
@@ -182,6 +236,79 @@ export async function issueCredentialLd(req: any, peer: PeerId, connection_id: s
   const { data } = await c.post('/issue-credential-2.0/send', payload);
   return data;
 }
+
+
+
+export interface W3cCredentialRecord {
+  id?: string;
+  [key: string]: any;
+}
+
+export async function fetchW3cCredentials(
+  req: any,
+  peer: PeerId,
+  credentialId?: string
+): Promise<{ single?: W3cCredentialRecord; list?: W3cCredentialRecord[] }> {
+  const c = clientForReq(req, peer);
+
+  if (credentialId) {
+    // Single credential
+    const { data } = await c.get(`/credential/w3c/${credentialId}`);
+    return { single: data };
+  } else {
+    // List all
+    const { data } = await c.post('/credentials/w3c');
+    return { list: data?.results ?? [] };
+  }
+}
+
+function unwrapAxiosError(e: any): never {
+  if (e.response) {
+    console.error(
+      'ACA-Py error',
+      e.response.status,
+      JSON.stringify(e.response.data, null, 2)
+    );
+  } else {
+    console.error('ACA-Py error (no response)', e.message);
+  }
+  throw e;
+}
+
+// List all JSON-LD (W3C) credentials in the tenant wallet
+export async function listW3cCredentials(req: any, peer: PeerId) {
+  const c = clientForReq(req, peer);
+
+  try {
+    const { data } = await c.post('/credentials/w3c', {});
+    const records: any[] = data?.results ?? [];
+
+    // expose record_id as id and spread the VC
+    return records.map((r) => ({
+      id: r.record_id,
+      record_id: r.record_id,   // keep both if you want
+      ...r.cred_value,          // @context, type, issuer, credentialSubject, proof
+    }));
+  } catch (e) {
+    unwrapAxiosError(e);
+  }
+}
+
+
+// Get a single JSON-LD credential by record_id
+export async function getW3cCredential(req: any, peer: PeerId, id: string) {
+  const c = clientForReq(req, peer);
+
+  // Either keep your existing /credentials/w3c/{id}…
+  // const { data } = await c.get(`/credentials/w3c/${id}`);
+
+  // …or use VC-API detail endpoint (cleaner & future-proof):
+  const { data } = await c.get(`/vc/credentials/${id}`);
+
+  return { credential_id: id, credential: data };
+}
+
+
 
 // ---- Verifier: request presentation (DIF PE) ----
 export async function requestPresentation(req: any, peer: PeerId, connection_id: string, presDef: any, opts?: { challenge?: string; domain?: string; auto_verify?: boolean }) {
@@ -244,4 +371,6 @@ export async function sendPresentation(
   );
   return data;
 }
+
+
 
