@@ -2,11 +2,14 @@
 import { Router } from 'express';
 import axios from 'axios';
 import {
-  clientForReq, hasRole,
+  hasRole,
   ensureDidKey, getPublicDid,
   createInvitation, receiveInvitation,
   listConnections, issueCredentialLd,
   requestPresentation, listProofEx, PeerId,
+  deleteConnectionById,
+  deleteConnectionsByAlias,
+  getW3cCredential,listW3cCredentials
 } from '../acapy';
 import * as crypto from 'crypto';
 import { ctx, } from '../helper/ctx';
@@ -14,7 +17,7 @@ import { connectionIdFromAlias } from '../helper/connections';
 import { deriveEd25519FromSeed } from '../services/cryptography';
 import { readDIDkeyFromFabric, readLatestActiveDidFromFabric,readVcAnchorFromFabric,withContract } from '../services/ledger';
 const router = Router();
-import { getLatestByConnection, getLatestGlobal } from "../services/proofRequestCache";
+//import { getLatestByConnection, getLatestGlobal } from "../services/proofRequestCache";
 
 type CredCandidate = { record_id?: string; issuanceDate?: string; __created?: string };
 
@@ -100,7 +103,7 @@ function requireRole(peer: string, role: string) {
 //       wallet_dispatch_type = 'base',   // 'base' means tenant webhooks go to the base wallet’s webhook; use 'default' if you set per-tenant webhooks in wallet_webhook_urls
 //       jwt_secret,                      // OPTIONAL: per-tenant secret
 //       expires_in,                       // OPTIONAL: seconds for short-lived token will create a new one right after the initial non-expiring one
-//       newToken                           // optional (boolean)
+//       new_token                           // optional (boolean)
 //     } = req.body || {};
 
 //     if (!wallet_name || !wallet_key || !label) {
@@ -175,8 +178,8 @@ router.post('/tenants/create', async (req: any, res, next) => {
       wallet_type = 'askar',
       wallet_webhook_urls = [],
       wallet_dispatch_type = 'base',   // 'base' means tenant webhooks go to the base wallet’s webhook; use 'default' if you set per-tenant webhooks in wallet_webhook_urls
-      jwt_secret,                      // OPTIONAL: per-tenant secret
-      newToken                           // optional (boolean or "true"/"false")
+      //jwt_secret,                      // OPTIONAL: per-tenant secret
+      new_token                           // optional (boolean or "true"/"false")
     } = req.body || {};
 
     if (!wallet_name || !wallet_key || !label) {
@@ -199,12 +202,12 @@ router.post('/tenants/create', async (req: any, res, next) => {
     const adminKey = adminKeyFromReq || adminKeyFromEnv;
     const extraHeaders: any = adminKey ? { 'x-api-key': adminKey } : {};
 
-    // normalize newToken flag
+    // normalize new_token flag
     const wantNewToken =
-      newToken === true ||
-      String(newToken).toLowerCase() === 'true' ||
-      Number(newToken) === 1 ||
-      (req.query?.newToken && String(req.query.newToken).toLowerCase() === 'true');
+      new_token === true ||
+      String(new_token).toLowerCase() === 'true' ||
+      Number(new_token) === 1 ||
+      (req.query?.new_token && String(req.query.new_token).toLowerCase() === 'true');
 
     // helpers
     const findWalletByName = async (name: string) => {
@@ -243,7 +246,7 @@ router.post('/tenants/create', async (req: any, res, next) => {
       wallet_webhook_urls,
       wallet_dispatch_type
     };
-    if (jwt_secret) payload.jwt_secret = jwt_secret;
+    //if (jwt_secret) payload.jwt_secret = jwt_secret;
 
     try {
       const { data: created } = await c.post('/multitenancy/wallet', payload, { headers: extraHeaders });
@@ -258,14 +261,14 @@ router.post('/tenants/create', async (req: any, res, next) => {
         const w = await findWalletByName(wallet_name);
         if (!w) return res.status(409).json({ error: 'wallet_already_exists_but_not_listed' });
 
-        // No newToken requested -> return 409 with details, but DO NOT mint a token
+        // No new_token requested -> return 409 with details, but DO NOT mint a token
         return res.status(409).json({
           error: 'wallet_already_exists',
           peer,
           created: false,
           wallet_id: w.wallet_id,
           settings: w.settings,
-          hint: 'Call again with "newToken": true to mint a new token.'
+          hint: 'Call again with "new_token": true to mint a new token.'
         });
       }
 
@@ -357,8 +360,8 @@ router.post('/did/bootstrap', async (req, res, next) => {
 router.post('/invitations/create', async (req: any, res, next) => {
   try {
     const { peer } = ctx(req);           // typically issuer or verifier
-    const { alias = 'oob', autoAccept = true } = req.body || {};
-    const inv = await createInvitation(req, peer, alias, !!autoAccept);
+    const { contact_alias, autoAccept = true } = req.body || {};
+    const inv = await createInvitation(req, peer, contact_alias, !!autoAccept);
     res.json({ peer, ...inv });
   } catch (e) { next(e); }
 });
@@ -380,7 +383,7 @@ router.post('/invitations/create', async (req: any, res, next) => {
 router.post('/invitations/accept', async (req, res, next) => {
   try {
     const { peer } = ctx(req);    // holder agent peer
-    const { invitation, invitation_url, alias } = req.body || {};
+    const { invitation, invitation_url, contact_alias } = req.body || {};
 
     let inv = invitation;
     if (!inv && invitation_url) {
@@ -398,7 +401,7 @@ router.post('/invitations/accept', async (req, res, next) => {
 
     if (!inv) return res.status(400).json({ error: 'invitation required' });
 
-    const out = await receiveInvitation(req, peer, inv, alias);
+    const out = await receiveInvitation(req, peer, inv, contact_alias);
     res.json({ peer, ...out });
   } catch (e) {
     next(e);
@@ -408,21 +411,62 @@ router.post('/invitations/accept', async (req, res, next) => {
 
 
 
-
-// src/routes/agents.ts
-
-
-
-
-// Connections
-router.get('/connections', async (req, res, next) => {
+// DELETE /agent/connections/:id  -> delete a single connection by id
+router.delete('/connections/:id', async (req: any, res, next) => {
   try {
-    const { peer, c } = ctx(req);          // <- use c from ctx
-    const { data } = await c.get('/connections');
-    res.json({ peer, results: data?.results ?? [] });
-  } catch (e) { next(e); }
+    const { peer } = ctx(req);          // issuer / holder / verifier tenant
+    const { id } = req.params;
+
+    await deleteConnectionById(req, peer, id);
+
+    res.json({
+      peer,
+      deleted: [id],
+      count: 1,
+    });
+  } catch (e) {
+    next(e);
+  }
 });
 
+
+
+// DELETE /agent/connections/:id
+router.delete('/connections/:id', async (req: any, res, next) => {
+  try {
+    const { peer } = ctx(req);  // issuer / holder / verifier tenant
+    const { id } = req.params;
+
+    const result = await deleteConnectionById(req, peer, id);
+    res.json({ peer, ...result });
+  } catch (e) {
+    next(e);
+  }
+});
+
+
+// DELETE /agent/connections?alias=DrX[&state=active]
+router.delete('/connections', async (req: any, res, next) => {
+  try {
+    const { peer } = ctx(req);
+    const { contact_alias, state } = req.query;
+
+    if (!contact_alias) {
+      return res.status(400).json({ error: 'alias query parameter is required' });
+    }
+
+    const result = await deleteConnectionsByAlias(
+      req,
+      peer,
+      String(contact_alias),
+      state ? { state: String(state) } : undefined,
+    );
+
+    res.json({ peer, ...result });
+  } catch (e) {
+    next(e);
+  }
+});
 
 // router.get('/connections', async (req: any, res, next) => {
 //   try {
@@ -655,6 +699,16 @@ router.get('/connections', async (req, res, next) => {
 // });
 //!
 
+// Connections
+router.get('/connections', async (req, res, next) => {
+  try {
+    const { peer, c } = ctx(req);          // <- use c from ctx
+    const { data } = await c.get('/connections');
+    res.json({ peer, results: data?.results ?? [] });
+  } catch (e) { next(e); }
+});
+
+
 function makeConsentId(): string {
   const salt = crypto.randomUUID?.() || crypto.randomBytes(16).toString('hex');
   return 'c_' + crypto.createHash('sha256').update(`${Date.now()}|${salt}`).digest('hex').slice(0, 40);
@@ -730,34 +784,51 @@ router.post('/credentials/propose', async (req: any, res, next) => {
 
     // accept optional purposes/operations/durationDays, optional mirrorAlias
     const {
-      alias,
-      items,
+      issuer_alias,
+      requested_payload,
       seed,
       purposes,
       operations,
       durationDays,
       publicKeyPem: bodyPub,
       consentId: bodyConsentId,
-      mirrorAlias
+      verifier_alias,
     } = req.body || {};
 
-    if (!alias) return res.status(400).json({ error: 'alias is required' });
+    if (!issuer_alias) return res.status(400).json({ error: 'issuer_alias is required' });
 
-    const connection_id = await connectionIdFromAlias(c, alias);
+    const connection_id = await connectionIdFromAlias(c, issuer_alias);
 
     // Holder BLS did:key (for BBS+ subject)
     let holderDid = await getPublicDid(req, peer);
     if (!holderDid) holderDid = await ensureDidKey(req, peer, { key_type: 'bls12381g2' });
 
     // Items: use request body if present; else mirror from latest cached proof request (optionally by mirrorAlias)
-   let effectiveItems: string[] = Array.isArray(items) ? items : [];
-
+   let effectiveItems: string[] = Array.isArray(requested_payload) ? requested_payload : [];
+    const presExId = String(
+    req.body?.pres_ex_id ?? req.body?.presExId ?? req.body?.requestId ?? ''
+  ).trim();
+    // If not supplied, try: requestId/presExId -> mirrorAlias -> latest
+    if (effectiveItems.length === 0) {
+      // 1) Specific proof request id
+      if (presExId) {
+        try {
+          const { data: rec } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(presExId)}`);
+          if (rec?.state === 'request-received') {
+            const reqItems = extractRequiredItemsFromPD(rec);
+            if (reqItems.length) effectiveItems = reqItems;
+          }
+        } catch {
+          // ignore; fall through to next strategy
+        }
+      }
+    }
     if (effectiveItems.length === 0) {
       // Resolve optional mirrorAlias -> connection_id filter
       let connection_id_filter: string | undefined;
-      if (mirrorAlias) {
+      if (verifier_alias) {
         try {
-          connection_id_filter = await connectionIdFromAlias(c, mirrorAlias);
+          connection_id_filter = await connectionIdFromAlias(c, verifier_alias);
         } catch {
           // ignore; will fall back to global latest
         }
@@ -827,8 +898,8 @@ router.post('/credentials/propose', async (req: any, res, next) => {
     const canon = (arr: string[]) =>
       Array.from(new Set(arr.map(s => s.trim().toLowerCase()))).sort();
 
-    const purposesArr   = canon(toArr(purposes ?? 'treatment'));
-    const operationsArr = canon(toArr(operations ?? 'read'));
+    const purposesArr   = canon(toArr(purposes ?? 'pcode001'));
+    const operationsArr = canon(toArr(operations ?? 'ocode001'));
 
     const durDaysNum = Number(durationDays);
     const includeDuration = Number.isFinite(durDaysNum) && durDaysNum > 0;
@@ -963,6 +1034,53 @@ router.post('/credentials/issue', async (req: any, res, next) => {
 
 
 
+// GET /agent/credentials/w3c       → list all
+// router.get('/credentials/w3c', async (req: any, res, next) => {
+//   try {
+//     const { peer } = ctx(req);   // still driven by x-selected-peer or similar
+//     const results = await listW3cCredentials(req, peer);
+//     res.json({ peer, results });
+//   } catch (e) {
+//     next(e);
+//   }
+// });
+
+// // GET /agent/credentials/w3c/:id   → get one by record_id
+// router.get('/credentials/w3c/:id', async (req: any, res, next) => {
+//   try {
+//     const { peer } = ctx(req);
+//     const { id } = req.params;
+//     const record = await getW3cCredential(req, peer, id);
+//     res.json({ peer, ...record });
+//   } catch (e) {
+//     next(e);
+//   }
+// });
+
+router.get('/credentials/w3c/:id?', async (req: any, res, next) => {
+  try {
+    const { peer, c } = ctx(req);  // holder peer
+    requireRole(peer, 'holder');
+    const { id } = req.params;
+    
+
+    if (id) {
+      const record = await getW3cCredential(req, peer, id);
+      return res.json({ peer, ...record });
+    }
+
+    const results = await listW3cCredentials(req, peer);
+    return res.json({
+      peer,
+      count: results.length,
+      results,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+
 
 // Proof request (role gated)
 
@@ -1014,20 +1132,20 @@ router.post('/proofs/request', async (req: any, res, next) => {
     requireRole(peer, 'verifier');
 
     const {
-      alias,
-      items,                      // NEW: array of strings
+      holder_alias,
+      request_payload,                      // NEW: array of strings
       purpose = 'Consent check',
-      name = items?.length ? `Consent check: ${items.join(', ')}` : 'Consent check',
+      name = request_payload?.length ? `Consent check: ${request_payload.join(', ')}` : 'Consent check',
       presentation_definition,
       options
     } = req.body || {};
 
-    if (!alias) return res.status(400).json({ error: 'alias is required' });
-    if (!Array.isArray(items) || items.length === 0)
-      return res.status(400).json({ error: 'items[] (non-empty) is required' });
+    if (!holder_alias) return res.status(400).json({ error: 'holder_alias is required' });
+    if (!Array.isArray(request_payload) || request_payload.length === 0)
+      return res.status(400).json({ error: 'request_payload[] (non-empty) is required' });
 
-    const connection_id = await connectionIdFromAlias(c, alias);
-    const wanted = normItems(items);
+    const connection_id = await connectionIdFromAlias(c, holder_alias);
+    const wanted = normItems(request_payload);
     const presDef = buildItemsPD(presentation_definition, name, purpose, wanted);
 
     const out = await requestPresentation(req, peer, connection_id, presDef, options);
@@ -1134,6 +1252,7 @@ function pickRecordIds(cands: CredCandidate[]): string[] {
 //     next(e);
 //   }
 // });
+
 router.get('/proofs/inbox', async (req: any, res, next) => {
   try {
     const { peer, c } = ctx(req);
@@ -1197,12 +1316,12 @@ router.get('/proofs/inbox', async (req: any, res, next) => {
       const domain    = difOptions.domain ?? null;
 
       const connection_id = r.connection_id;
-      const alias = aliasByConn[connection_id] ?? null;
+      const verifier_alias = aliasByConn[connection_id] ?? null;
 
       results.push({
         pres_ex_id,
         connection_id,
-        alias,                 // already included in your code
+        verifier_alias,                 // already included in your code
         thread_id: r.thread_id,
         state: r.state,
         role: r.role,
@@ -1218,6 +1337,148 @@ router.get('/proofs/inbox', async (req: any, res, next) => {
     next(e);
   }
 });
+
+
+// router.get('/proofs/records', async (req: any, res, next) => {
+//   try {
+//     const { peer, c } = ctx(req);
+
+//     const { state } = req.query as { state?: string };
+//     const qConn  = (req.query.connection_id ?? '').toString().trim();
+//     const qAlias = (req.query.alias ?? '').toString().trim().toLowerCase();
+
+//     // Build maps: connection_id -> alias and alias -> [connection_ids]
+//     const conns = await listConnections(req, peer, 100, 0, c);  // reuse same tenant client
+//     const aliasByConn: Record<string, string | null> = {};
+//     const connIdsByAlias: Record<string, string[]> = {};
+
+//     for (const conn of conns || []) {
+//       const id = conn?.connection_id;
+//       if (!id) continue;
+//       const alias = conn?.alias ?? conn?.their_label ?? null;
+//       aliasByConn[id] = alias;
+//       if (alias) {
+//         const key = String(alias).toLowerCase();
+//         (connIdsByAlias[key] ||= []).push(id);
+//       }
+//     }
+
+//     // Allowed connection set based on filters (AND if both provided)
+//     const byConn  = qConn  ? new Set<string>([qConn]) : null;
+//     const byAlias = qAlias ? new Set<string>(connIdsByAlias[qAlias] || []) : null;
+//     let allowedConnIds: Set<string> | null = null;
+//     if (byConn && byAlias) {
+//       allowedConnIds = new Set([...byConn].filter(id => byAlias.has(id)));
+//     } else {
+//       allowedConnIds = byConn || byAlias; // null => no filtering
+//     }
+
+//     // Fetch & optionally filter by state
+//     const records = await listProofEx(req, peer);
+//     let filtered = state
+//       ? records.filter((r: any) => r?.state === String(state))
+//       : records;
+
+//     // Filter by alias/connection if provided
+//     if (allowedConnIds) {
+//       filtered = filtered.filter((r: any) => allowedConnIds!.has(r.connection_id));
+//     }
+
+//     const detailed = await Promise.all(
+//       filtered.map(async (r: any) => {
+//         let consentId: string | null = extractConsentIdAny(r);
+//         let abandoned_reason: string | null = null;
+
+//         // Start with requested/challenge/domain from the list record
+//         let requested =
+//           r?.by_format?.pres_request?.dif?.presentation_definition?.input_descriptors ||
+//           r?.pres_request?.dif?.presentation_definition?.input_descriptors ||
+//           r?.presentation_request_dict?.dif?.presentation_definition?.input_descriptors ||
+//           [];
+
+//         let difOptions =
+//           r?.by_format?.pres_request?.dif?.options ||
+//           r?.pres_request?.dif?.options ||
+//           r?.presentation_request_dict?.dif?.options ||
+//           {};
+
+//         let challenge: string | null = difOptions.challenge ?? null;
+//         let domain: string | null = difOptions.domain ?? null;
+
+//         const presId = r.pres_ex_id || r.presentation_exchange_id || r._id;
+
+//         // Decide if we need the full record
+//         const needFull =
+//           !consentId ||
+//           r?.state === 'abandoned' ||
+//           !requested?.length ||
+//           !challenge ||
+//           !domain;
+
+//         if (needFull) {
+//           try {
+//             const { data: rec } = await c.get(
+//               `/present-proof-2.0/records/${encodeURIComponent(presId)}`
+//             );
+
+//             if (!consentId) {
+//               consentId = extractConsentIdAny(rec);
+//             }
+//             if (r?.state === 'abandoned') {
+//               const pr = extractProblemReportAny(rec);
+//               abandoned_reason = pr?.reason ?? null;
+//             }
+
+//             if (!requested?.length) {
+//               requested =
+//                 rec?.by_format?.pres_request?.dif?.presentation_definition?.input_descriptors ||
+//                 rec?.pres_request?.dif?.presentation_definition?.input_descriptors ||
+//                 rec?.presentation_request_dict?.dif?.presentation_definition?.input_descriptors ||
+//                 [];
+//             }
+
+//             if (!challenge || !domain) {
+//               const recOpts =
+//                 rec?.by_format?.pres_request?.dif?.options ||
+//                 rec?.pres_request?.dif?.options ||
+//                 rec?.presentation_request_dict?.dif?.options ||
+//                 {};
+//               if (!challenge) challenge = recOpts.challenge ?? null;
+//               if (!domain)    domain    = recOpts.domain ?? null;
+//             }
+//           } catch {
+//             // ignore; we still return what we have
+//           }
+//         }
+
+//         const connection_id = r.connection_id;
+//         const alias = aliasByConn[connection_id] ?? null;
+
+//         return {
+//           pres_ex_id: presId,
+//           connection_id,
+//           alias,
+//           thread_id: r.thread_id,
+//           state: r.state,
+//           role: r.role,                 // still 'prover' on holder side
+//           verified: extractVerifiedFlag(r),
+//           created_at: r.created_at,
+//           updated_at: r.updated_at,
+//           consentId,
+//           abandoned_reason,
+//           requested,
+//           challenge,
+//           domain,
+//         };
+//       })
+//     );
+
+//     res.json({ peer, total: detailed.length, results: detailed });
+//   } catch (e) {
+//     next(e);
+//   }
+// });
+
 
 
 
@@ -1370,6 +1631,243 @@ router.get('/proofs/inbox', async (req: any, res, next) => {
 //     return res.status(status).json({ error: 'ACA-Py error', status, details });
 //   }
 // });
+// router.post('/proofs/send', async (req: any, res, next) => {
+//   try {
+//     const { peer, c } = ctx(req);
+//     requireRole(peer, 'holder');
+
+//     const body = req.body || {};
+
+//     // pres_ex_id optional; if absent we’ll use the latest request-received
+//     let pres_ex_id: string | undefined = body.pres_ex_id;
+//     const consentId: string | undefined = body.consentId;
+//     const alias: string | undefined = body.alias;
+//     // If nothing provided, fall back to the latest request-received
+//     let connection_id_filter: string | undefined;
+//     let resolvedAlias: string | undefined;
+//     if (!pres_ex_id) {
+//       if (alias) {
+//         // STRICT alias resolution
+//         const { data: connList } = await c.get('/connections');
+//         const hit = (connList?.results || []).find((r: any) => r?.alias === alias);
+//         if (!hit) return res.status(404).json({ error: 'alias_not_found', alias });
+//         connection_id_filter = hit.connection_id;
+//         resolvedAlias = hit.alias;
+//       }
+
+//       const { data } = await c.get('/present-proof-2.0/records');
+//       const reqs: any[] = (data?.results || []).filter((r: any) =>
+//         r.state === 'request-received' &&
+//         (!connection_id_filter || r.connection_id === connection_id_filter)
+//       );
+//       if (reqs.length === 0) return res.status(404).json({ error: 'No pending proof requests' });
+
+//       const latest = reqs.sort((a, b) =>
+//         new Date(b?.updated_at || b?.created_at || 0).getTime() -
+//         new Date(a?.updated_at || a?.created_at || 0).getTime()
+//       )[0];
+//       pres_ex_id = latest.pres_ex_id || latest.presentation_exchange_id || latest._id;
+
+//     } else if (alias) {
+//       // Optional: sanity check if caller provided both alias and pres_ex_id
+//       const { data: rec } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(pres_ex_id)}`);
+//       const { data: connList } = await c.get('/connections');
+//       const hit = (connList?.results || []).find((r: any) => r?.alias === alias);
+//       if (!hit) return res.status(404).json({ error: 'alias_not_found', alias });
+//       if (rec?.connection_id && rec.connection_id !== hit.connection_id) {
+//         return res.status(409).json({
+//           error: 'pres_ex_id_alias_mismatch',
+//           pres_ex_id,
+//           provided_alias: alias,
+//           expected_connection_id: rec?.connection_id,
+//           alias_connection_id: hit.connection_id
+//         });
+//       }
+//       resolvedAlias = hit.alias;
+//     }
+//       // after you resolve `pres_ex_id` (and optional alias checks) but BEFORE reading candidates:
+//       if (body.deny === true) {
+//         const description = String(body.reason || 'holder_denied_request');
+//         const code = 'request_denied';
+
+//         // 1) send a problem report -> pushes the exchange to "abandoned"
+//         await c.post(
+//           `/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}/problem-report`,
+//           { description, code }
+//         );
+//         let removed = false;
+//         // (optional) remove the record
+//         if (body.remove === true) {
+//           try {
+//             await c.delete(`/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}`);
+//             removed = true;
+//           } catch { /* ignore; removal is best-effort */ }
+//         }
+
+//         // Return current exchange snapshot if you want
+//         let rec: any = null;
+//         try {
+//           const { data } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}`);
+//           rec = {
+//             pres_ex_id: data?.pres_ex_id || data?.presentation_exchange_id || pres_ex_id,
+//             state: data?.state,
+//             role: data?.role,
+//             connection_id: data?.connection_id,
+//             updated_at: data?.updated_at,
+//           };
+//         } catch { /* non-fatal */ }
+
+//         return res.json({
+//           peer,
+//           pres_ex_id,
+//           denied: true,
+//           reason: description,
+//           removed: !!body.remove,
+//           record: rec
+//         });
+//       }
+
+//     // 1) Read the proof record to know descriptor ids AND required items (NEW)
+//     let descriptorIds: string[] = [];
+//     let requiredItems: string[] = []; // NEW
+//     try {
+//       const { data: rec } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}`);
+//       const defs =
+//         rec?.by_format?.pres_request?.dif?.presentation_definition?.input_descriptors ||
+//         rec?.pres_request?.dif?.presentation_definition?.input_descriptors ||
+//         rec?.presentation_request_dict?.dif?.presentation_definition?.input_descriptors ||
+//         [];
+//       descriptorIds = defs.map((d: any) => d?.id).filter(Boolean);
+
+//       // NEW: extract required items from PD (multiple 'fields' with const on consentedItems)
+//       const fields = (Array.isArray(defs) && defs[0]?.constraints?.fields) || [];
+//       requiredItems = fields
+//         .filter((f: any) =>
+//           Array.isArray(f?.path) &&
+//           f.path.includes('$.credentialSubject.consentedItems[*]') &&
+//           f?.filter?.const != null
+//         )
+//         .map((f: any) => String(f.filter.const).trim().toLowerCase());
+//     } catch { /* non-fatal */ }
+
+//     // 2) Fetch candidates for this exchange
+//     const { data: cands } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}/credentials`);
+//     if (!Array.isArray(cands) || cands.length === 0) {
+//       return res.status(422).json({
+//         error: 'no_candidates',
+//         reason: 'Proof request requires fields not present in any wallet credential'
+//       });
+//     }
+
+//     // 3) Normalize (keep raw for inspection)
+//     type Candidate = { record_id?: string; issuanceDate?: string; __created?: string; raw?: any; };
+//     const norm: Candidate[] = (cands || []).map((c: any) => ({
+//       record_id: c?.record_id,
+//       issuanceDate: c?.issuanceDate,
+//       __created: c?.proof?.created,
+//       raw: c
+//     }));
+
+//     // 4) Helper inline: read consentId from several shapes (kept inline, not global)
+//     const getConsentId = (x: any): string | undefined => {
+//       if (!x || typeof x !== 'object') return undefined;
+//       if (x.credentialSubject?.consentId) return String(x.credentialSubject.consentId);
+//       if (x.cred_value?.credentialSubject?.consentId) return String(x.cred_value.credentialSubject.consentId);
+//       if (x.credential?.credentialSubject?.consentId) return String(x.credential.credentialSubject.consentId);
+//       if (x.attrs?.consentId) return String(x.attrs.consentId);
+//       return undefined;
+//     };
+
+//     // 5) Filter by consentId (if provided)
+//     let filtered = norm;
+//     if (consentId) {
+//       filtered = norm.filter(n => getConsentId(n.raw) === String(consentId));
+//       if (filtered.length === 0) {
+//         return res.status(404).json({
+//           error: 'no_matching_credentials_for_consentId',
+//           message: `No credential in wallet has credentialSubject.consentId="${consentId}".`
+//         });
+//       }
+//     }
+
+//     // 6) NEW: ensure candidate includes ALL required items from PD
+//     if (requiredItems.length) {
+//       const includesAll = (raw: any): boolean => {
+//         const cs =
+//           raw?.credential?.credentialSubject ??
+//           raw?.cred_value?.credentialSubject ??
+//           raw?.credentialSubject ??
+//           {};
+//         const have = Array.isArray(cs.consentedItems)
+//           ? cs.consentedItems.map((s: any) => String(s).trim().toLowerCase())
+//           : [];
+//         return requiredItems.every((x: string) => have.includes(x));
+//       };
+
+//       filtered = filtered.filter((n) => includesAll(n.raw));
+//       if (filtered.length === 0) {
+//         // File a problem-report and bail
+//         try {
+//           await c.post(
+//             `/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}/problem-report`,
+//             {
+//               description: `No wallet credential contains all required consentedItems: ${requiredItems.join(', ')}`,
+//               code: 'request_not_satisfiable'
+//             }
+//           );
+//         } catch { /* ignore */ }
+
+//         return res.status(422).json({
+//           error: 'no_satisfying_candidates',
+//           reason: 'No credential contains all required consentedItems requested by the PD.',
+//           requiredItems
+//         });
+//       }
+//     }
+
+//     // 7) Pick one record_id (newest issuance first; fall back to created)
+//     const pickedIds = filtered.length === 1 ? [filtered[0].record_id!] : pickRecordIds(filtered as any);
+//     if (!pickedIds || pickedIds.length === 0) {
+//       return res.status(422).json({ error: 'No suitable credentials found for this proof request' });
+//     }
+
+//     // 8) Build DIF payload (prefer descriptor-keyed mapping when we know the descriptor id)
+//     let difPayload: any;
+//     if (descriptorIds.length === 1) {
+//       difPayload = { record_ids: { [descriptorIds[0]]: pickedIds } };
+//     } else if (descriptorIds.length > 1) {
+//       return res.status(400).json({
+//         error: 'record_ids_required_for_multiple_descriptors',
+//         message: 'Multiple input_descriptors present; provide record_ids as { descriptorId: [ids] }.'
+//       });
+//     } else {
+//       difPayload = { record_ids: pickedIds };
+//     }
+//     const chosen = filtered.find(n => n.record_id === pickedIds[0]);
+//     const chosenConsentId = consentId ?? getConsentId(chosen?.raw) ?? null;
+//     // Send (ACA-Py already has challenge/domain on the exchange)
+//     const payload = { dif: difPayload };
+//     const { data: sent } = await c.post(
+//       `/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}/send-presentation`,
+//       payload
+//     );
+
+//     return res.json({
+//       peer,
+//       pres_ex_id,
+//       used_descriptor_id: descriptorIds[0] ?? null,
+//       used_record_id: pickedIds[0],
+//       used_consentId: chosenConsentId ?? null,
+//       resolved_alias: resolvedAlias ?? null,
+//       resolved_connection_id: connection_id_filter ?? null,
+//       result: sent
+//     });
+//   } catch (e: any) {
+//     const status = e?.response?.status || 500;
+//     const details = e?.response?.data || e?.message || 'ACA-Py error';
+//     return res.status(status).json({ error: 'ACA-Py error', status, details });
+//   }
+// });
 router.post('/proofs/send', async (req: any, res, next) => {
   try {
     const { peer, c } = ctx(req);
@@ -1378,18 +1876,22 @@ router.post('/proofs/send', async (req: any, res, next) => {
     const body = req.body || {};
 
     // pres_ex_id optional; if absent we’ll use the latest request-received
-    let pres_ex_id: string | undefined = body.pres_ex_id;
+    let pres_ex_id: string | undefined =
+      body.pres_ex_id ?? body.presExId ?? body.requestId;
+
     const consentId: string | undefined = body.consentId;
-    const alias: string | undefined = body.alias;
+    const verifier_alias: string | undefined = body.verifier_alias;
+
     // If nothing provided, fall back to the latest request-received
     let connection_id_filter: string | undefined;
     let resolvedAlias: string | undefined;
+
     if (!pres_ex_id) {
-      if (alias) {
+      if (verifier_alias) {
         // STRICT alias resolution
         const { data: connList } = await c.get('/connections');
-        const hit = (connList?.results || []).find((r: any) => r?.alias === alias);
-        if (!hit) return res.status(404).json({ error: 'alias_not_found', alias });
+        const hit = (connList?.results || []).find((r: any) => r?.alias === verifier_alias);
+        if (!hit) return res.status(404).json({ error: 'alias_not_found', alias: verifier_alias });
         connection_id_filter = hit.connection_id;
         resolvedAlias = hit.alias;
       }
@@ -1407,27 +1909,59 @@ router.post('/proofs/send', async (req: any, res, next) => {
       )[0];
       pres_ex_id = latest.pres_ex_id || latest.presentation_exchange_id || latest._id;
 
-    } else if (alias) {
-      // Optional: sanity check if caller provided both alias and pres_ex_id
-      const { data: rec } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(pres_ex_id)}`);
-      const { data: connList } = await c.get('/connections');
-      const hit = (connList?.results || []).find((r: any) => r?.alias === alias);
-      if (!hit) return res.status(404).json({ error: 'alias_not_found', alias });
-      if (rec?.connection_id && rec.connection_id !== hit.connection_id) {
-        return res.status(409).json({
-          error: 'pres_ex_id_alias_mismatch',
-          pres_ex_id,
-          provided_alias: alias,
-          expected_connection_id: rec?.connection_id,
-          alias_connection_id: hit.connection_id
-        });
-      }
-      resolvedAlias = hit.alias;
+    } else {
+      // pres_ex_id is globally unique; skip alias validation.
+      // Optionally fetch to return alias in response (best-effort only).
+      try {
+        const { data: rec } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(pres_ex_id)}`);
+        resolvedAlias = rec?.alias || null;
+      } catch { /* ignore */ }
     }
 
-    // 1) Read the proof record to know descriptor ids AND required items (NEW)
+    // ---- Deny path (B) ----
+    const toBool = (v: any) => (typeof v === 'string' ? v.toLowerCase() === 'true' : !!v);
+    if (toBool(body.deny)) {
+      const description = String(body.reason || 'holder_denied_request');
+      const code = 'request_denied';
+
+      await c.post(
+        `/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}/problem-report`,
+        { description, code }
+      );
+
+      let removed = false;
+      if (toBool(body.remove)) {
+        try {
+          await c.delete(`/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}`);
+          removed = true;
+        } catch { /* best effort */ }
+      }
+
+      let rec: any = null;
+      try {
+        const { data } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}`);
+        rec = {
+          pres_ex_id: data?.pres_ex_id || data?.presentation_exchange_id || pres_ex_id,
+          state: data?.state,
+          role: data?.role,
+          connection_id: data?.connection_id,
+          updated_at: data?.updated_at,
+        };
+      } catch { /* non-fatal */ }
+
+      return res.json({
+        peer,
+        pres_ex_id,
+        denied: true,
+        reason: description,
+        removed,
+        record: rec
+      });
+    }
+
+    // 1) Read the proof record to know descriptor ids AND required items (keep original behavior)
     let descriptorIds: string[] = [];
-    let requiredItems: string[] = []; // NEW
+    let requiredItems: string[] = []; // NEW in your original, but keep same extraction style
     try {
       const { data: rec } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}`);
       const defs =
@@ -1437,7 +1971,6 @@ router.post('/proofs/send', async (req: any, res, next) => {
         [];
       descriptorIds = defs.map((d: any) => d?.id).filter(Boolean);
 
-      // NEW: extract required items from PD (multiple 'fields' with const on consentedItems)
       const fields = (Array.isArray(defs) && defs[0]?.constraints?.fields) || [];
       requiredItems = fields
         .filter((f: any) =>
@@ -1466,7 +1999,7 @@ router.post('/proofs/send', async (req: any, res, next) => {
       raw: c
     }));
 
-    // 4) Helper inline: read consentId from several shapes (kept inline, not global)
+    // 4) Helper inline: read consentId from several shapes
     const getConsentId = (x: any): string | undefined => {
       if (!x || typeof x !== 'object') return undefined;
       if (x.credentialSubject?.consentId) return String(x.credentialSubject.consentId);
@@ -1488,7 +2021,7 @@ router.post('/proofs/send', async (req: any, res, next) => {
       }
     }
 
-    // 6) NEW: ensure candidate includes ALL required items from PD
+    // 6) Ensure candidate includes ALL required items from PD (keep original logic)
     if (requiredItems.length) {
       const includesAll = (raw: any): boolean => {
         const cs =
@@ -1504,7 +2037,6 @@ router.post('/proofs/send', async (req: any, res, next) => {
 
       filtered = filtered.filter((n) => includesAll(n.raw));
       if (filtered.length === 0) {
-        // File a problem-report and bail
         try {
           await c.post(
             `/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}/problem-report`,
@@ -1543,7 +2075,7 @@ router.post('/proofs/send', async (req: any, res, next) => {
     }
     const chosen = filtered.find(n => n.record_id === pickedIds[0]);
     const chosenConsentId = consentId ?? getConsentId(chosen?.raw) ?? null;
-    // Send (ACA-Py already has challenge/domain on the exchange)
+
     const payload = { dif: difPayload };
     const { data: sent } = await c.post(
       `/present-proof-2.0/records/${encodeURIComponent(pres_ex_id!)}/send-presentation`,
@@ -1696,20 +2228,205 @@ function extractConsentIdAny(rec: any): string | null {
 //verifier: verify presentation consent validity
 // --- helpers to parse DIF presentation shapes (reuse your earlier helpers style) ---
 
+// router.get('/proofs/records', async (req: any, res, next) => {
+//   try {
+//     const { peer, c } = ctx(req);
+//     //requireRole(peer, 'verifier');
+
+//     // Optional filters
+//     const { state } = req.query as { state?: string };
+//     const qConn  = (req.query.connection_id ?? '').toString().trim();
+//     const qAlias = (req.query.alias ?? '').toString().trim().toLowerCase();
+
+//     // Build maps: connection_id -> alias and alias -> [connection_ids]
+//     const conns = await listConnections(req, peer);
+//     const aliasByConn: Record<string, string | null> = {};
+//     const connIdsByAlias: Record<string, string[]> = {};
+//     for (const conn of conns || []) {
+//       const id = conn?.connection_id;
+//       if (!id) continue;
+//       const alias = conn?.alias ?? conn?.their_label ?? null;
+//       aliasByConn[id] = alias;
+//       if (alias) {
+//         const key = String(alias).toLowerCase();
+//         (connIdsByAlias[key] ||= []).push(id);
+//       }
+//     }
+
+//     // Allowed connection set based on filters (AND if both provided)
+//     const byConn  = qConn  ? new Set<string>([qConn]) : null;
+//     const byAlias = qAlias ? new Set<string>(connIdsByAlias[qAlias] || []) : null;
+//     let allowedConnIds: Set<string> | null = null;
+//     if (byConn && byAlias) {
+//       allowedConnIds = new Set([...byConn].filter(id => byAlias.has(id)));
+//     } else {
+//       allowedConnIds = byConn || byAlias; // null => no filtering
+//     }
+
+//     // Fetch & filter by state
+//     const records = await listProofEx(req, peer);
+//     let filtered = state ? records.filter((r: any) => r?.state === String(state)) : records;
+
+//     // Filter by alias/connection if provided
+//     if (allowedConnIds) {
+//       filtered = filtered.filter((r: any) => allowedConnIds!.has(r.connection_id));
+//     }
+
+//     // Build detailed rows
+//    // Build detailed rows
+//     const detailed = await Promise.all(
+//       filtered.map(async (r: any) => {
+//         let consentId: string | null = extractConsentIdAny(r);
+//         let abandoned_reason: string | null = null;
+       
+//         if (!consentId || r?.state === 'abandoned') {
+//           const id = r.pres_ex_id || r.presentation_exchange_id || r._id;
+//           try {
+//             const { data: rec } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(id)}`);
+//             if (!consentId) consentId = extractConsentIdAny(rec);
+//             if (r?.state === 'abandoned') {
+//               const pr = extractProblemReportAny(rec);
+//               abandoned_reason = pr.reason;
+//             }
+//           } catch { /* ignore */ }
+//         }
+
+//         const connection_id = r.connection_id;
+//         const alias = aliasByConn[connection_id] ?? null;
+
+//         return {
+//           pres_ex_id: r.pres_ex_id || r.presentation_exchange_id || r._id,
+//           connection_id,
+//           alias,
+//           thread_id: r.thread_id,
+//           state: r.state,
+//           role: r.role,
+//           verified: extractVerifiedFlag(r),
+//           created_at: r.created_at,
+//           updated_at: r.updated_at,
+//           consentId,
+//           // NEW (only populated when state==='abandoned')
+//           abandoned_reason
+//         };
+//       })
+//     );
+
+
+//     res.json({ peer, total: detailed.length, results: detailed });
+//   } catch (e) {
+//     next(e);
+//   }
+// });
+
+// router.get('/proofs/records', async (req: any, res, next) => {
+//   try {
+//     const { peer, c } = ctx(req);
+
+//     const { state } = req.query as { state?: string };
+//     const qConn  = (req.query.connection_id ?? '').toString().trim();
+//     const qAlias = ( req.query.contact_alias ?? req.query.alias ?? '').toString().trim().toLowerCase();
+
+//     // Build maps: connection_id -> alias and alias -> [connection_ids]
+//     const conns = await listConnections(req, peer, 100, 0, c);  // <-- pass c here
+//     const aliasByConn: Record<string, string | null> = {};
+//     const connIdsByAlias: Record<string, string[]> = {};
+//     for (const conn of conns || []) {
+//       const id = conn?.connection_id;
+//       if (!id) continue;
+//       const alias = conn?.alias ?? conn?.their_label ?? null;
+//       aliasByConn[id] = alias;
+//       if (alias) {
+//         const key = String(alias).toLowerCase();
+//         (connIdsByAlias[key] ||= []).push(id);
+//       }
+//     }
+
+//     // ...rest of your route unchanged...
+
+
+//     // Allowed connection set based on filters (AND if both provided)
+//     const byConn  = qConn  ? new Set<string>([qConn]) : null;
+//     const byAlias = qAlias ? new Set<string>(connIdsByAlias[qAlias] || []) : null;
+//     let allowedConnIds: Set<string> | null = null;
+//     if (byConn && byAlias) {
+//       allowedConnIds = new Set([...byConn].filter(id => byAlias.has(id)));
+//     } else {
+//       allowedConnIds = byConn || byAlias; // null => no filtering
+//     }
+
+//     // Fetch & filter by state
+//     const records = await listProofEx(req, peer);
+//     let filtered = state ? records.filter((r: any) => r?.state === String(state)) : records;
+
+//     // Filter by alias/connection if provided
+//     if (allowedConnIds) {
+//       filtered = filtered.filter((r: any) => allowedConnIds!.has(r.connection_id));
+//     }
+
+//     // Build detailed rows
+//    // Build detailed rows
+//     const detailed = await Promise.all(
+//       filtered.map(async (r: any) => {
+//         let consentId: string | null = extractConsentIdAny(r);
+//         let abandoned_reason: string | null = null;
+       
+//         if (!consentId || r?.state === 'abandoned') {
+//           const id = r.pres_ex_id || r.presentation_exchange_id || r._id;
+//           try {
+//             const { data: rec } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(id)}`);
+//             if (!consentId) consentId = extractConsentIdAny(rec);
+//             if (r?.state === 'abandoned') {
+//               const pr = extractProblemReportAny(rec);
+//               abandoned_reason = pr.reason;
+//             }
+//           } catch { /* ignore */ }
+//         }
+
+//         const connection_id = r.connection_id;
+//         const alias = aliasByConn[connection_id] ?? null;
+
+//         return {
+//           pres_ex_id: r.pres_ex_id || r.presentation_exchange_id || r._id,
+//           connection_id,
+//           alias,
+//           thread_id: r.thread_id,
+//           state: r.state,
+//           role: r.role,
+//           verified: extractVerifiedFlag(r),
+//           created_at: r.created_at,
+//           updated_at: r.updated_at,
+//           consentId,
+//           // NEW (only populated when state==='abandoned')
+//           abandoned_reason
+//         };
+//       })
+//     );
+
+
+//     res.json({ peer, total: detailed.length, results: detailed });
+//   } catch (e) {
+//     next(e);
+//   }
+// });
+
 router.get('/proofs/records', async (req: any, res, next) => {
   try {
     const { peer, c } = ctx(req);
-    //requireRole(peer, 'verifier');
 
-    // Optional filters
     const { state } = req.query as { state?: string };
+
     const qConn  = (req.query.connection_id ?? '').toString().trim();
-    const qAlias = (req.query.alias ?? '').toString().trim().toLowerCase();
+    const qAlias = (
+      req.query.contact_alias ??
+      req.query.alias ??
+      ''
+    ).toString().trim().toLowerCase();
 
     // Build maps: connection_id -> alias and alias -> [connection_ids]
-    const conns = await listConnections(req, peer);
+    const conns = await listConnections(req, peer, 100, 0, c);
     const aliasByConn: Record<string, string | null> = {};
     const connIdsByAlias: Record<string, string[]> = {};
+
     for (const conn of conns || []) {
       const id = conn?.connection_id;
       if (!id) continue;
@@ -1725,46 +2442,111 @@ router.get('/proofs/records', async (req: any, res, next) => {
     const byConn  = qConn  ? new Set<string>([qConn]) : null;
     const byAlias = qAlias ? new Set<string>(connIdsByAlias[qAlias] || []) : null;
     let allowedConnIds: Set<string> | null = null;
+
     if (byConn && byAlias) {
+      // intersection
       allowedConnIds = new Set([...byConn].filter(id => byAlias.has(id)));
     } else {
-      allowedConnIds = byConn || byAlias; // null => no filtering
+      // one or none
+      allowedConnIds = byConn || byAlias; // null => no filter
     }
 
-    // Fetch & filter by state
+    // Fetch & optionally filter by state
     const records = await listProofEx(req, peer);
-    let filtered = state ? records.filter((r: any) => r?.state === String(state)) : records;
+    let filtered = state
+      ? records.filter((r: any) => r?.state === String(state))
+      : records;
 
     // Filter by alias/connection if provided
     if (allowedConnIds) {
       filtered = filtered.filter((r: any) => allowedConnIds!.has(r.connection_id));
     }
 
-    // Build detailed rows
     const detailed = await Promise.all(
       filtered.map(async (r: any) => {
         let consentId: string | null = extractConsentIdAny(r);
-        if (!consentId) {
-          const id = r.pres_ex_id || r.presentation_exchange_id || r._id;
+        let abandoned_reason: string | null = null;
+
+        // Try to read requested/challenge/domain directly from list record
+        let requested =
+          r?.by_format?.pres_request?.dif?.presentation_definition?.input_descriptors ||
+          r?.pres_request?.dif?.presentation_definition?.input_descriptors ||
+          r?.presentation_request_dict?.dif?.presentation_definition?.input_descriptors ||
+          [];
+
+        let difOptions =
+          r?.by_format?.pres_request?.dif?.options ||
+          r?.pres_request?.dif?.options ||
+          r?.presentation_request_dict?.dif?.options ||
+          {};
+
+        let challenge: string | null = difOptions.challenge ?? null;
+        let domain: string | null = difOptions.domain ?? null;
+
+        const presId = r.pres_ex_id || r.presentation_exchange_id || r._id;
+
+        // Decide if we need the full record
+        const needFull =
+          !consentId ||
+          r?.state === 'abandoned' ||
+          !requested?.length ||
+          !challenge ||
+          !domain;
+
+        if (needFull) {
           try {
-            const { data: rec } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(id)}`);
-            consentId = extractConsentIdAny(rec);
-          } catch { /* ignore */ }
+            const { data: rec } = await c.get(
+              `/present-proof-2.0/records/${encodeURIComponent(presId)}`
+            );
+
+            if (!consentId) {
+              consentId = extractConsentIdAny(rec);
+            }
+            if (r?.state === 'abandoned') {
+              const pr = extractProblemReportAny(rec);
+              abandoned_reason = pr?.reason ?? null;
+            }
+
+            if (!requested?.length) {
+              requested =
+                rec?.by_format?.pres_request?.dif?.presentation_definition?.input_descriptors ||
+                rec?.pres_request?.dif?.presentation_definition?.input_descriptors ||
+                rec?.presentation_request_dict?.dif?.presentation_definition?.input_descriptors ||
+                [];
+            }
+
+            if (!challenge || !domain) {
+              const recOpts =
+                rec?.by_format?.pres_request?.dif?.options ||
+                rec?.pres_request?.dif?.options ||
+                rec?.presentation_request_dict?.dif?.options ||
+                {};
+              if (!challenge) challenge = recOpts.challenge ?? null;
+              if (!domain)    domain    = recOpts.domain ?? null;
+            }
+          } catch {
+            // ignore; return what we have
+          }
         }
+
         const connection_id = r.connection_id;
         const alias = aliasByConn[connection_id] ?? null;
 
         return {
-          pres_ex_id: r.pres_ex_id || r.presentation_exchange_id || r._id,
+          pres_ex_id: presId,
           connection_id,
           alias,
           thread_id: r.thread_id,
           state: r.state,
           role: r.role,
-          verified: r.verified ?? r?.by_format?.pres?.dif?.verified ?? undefined,
+          verified: extractVerifiedFlag(r),
           created_at: r.created_at,
           updated_at: r.updated_at,
           consentId,
+          abandoned_reason,
+          requested,
+          challenge,
+          domain,
         };
       })
     );
@@ -1774,7 +2556,6 @@ router.get('/proofs/records', async (req: any, res, next) => {
     next(e);
   }
 });
-
 
 
 function extractIssuerDidAny(rec: any): string | null {
@@ -1810,13 +2591,32 @@ function sortByRecency(a: any, b: any) {
   return tb - ta;
 }
 
+
+function extractProblemReportAny(rec: any): { reason: string | null; code: string | null } {
+  // Common places ACA-Py stores it for present-proof v2
+  const pr = rec?.problem_report || rec?.problem_report_dict || rec?.by_format?.problem_report;
+  const code =
+    (typeof pr?.code === 'string' && pr.code) ||
+    (typeof rec?.problem_code === 'string' && rec.problem_code) ||
+    null;
+
+  // v2 often sets error_msg; keep our custom description too
+  const reason =
+    (typeof pr?.description === 'string' && pr.description) ||
+    (typeof rec?.error_msg === 'string' && rec.error_msg) ||
+    null;
+
+  return { reason, code };
+}
+
+
 // // --- POST /agent/proofs/verify ---
 // router.post('/proofs/verify', async (req: any, res, next) => {
 //   try {
 //     const { peer, c } = ctx(req);  
 //     requireRole(peer, 'verifier');
 
-//     const { consentId, purpose = 'treatment', operation = 'read' } = req.body || {};
+//     const { consentId, purpose = 'pcode001', operation = 'ocode001' } = req.body || {};
 //     if (!consentId) return res.status(400).json({ error: 'consentId is required' });
 
 //     // 1) Find a completed/verified proof exchange that contains this consentId
@@ -1967,7 +2767,7 @@ function sortByRecency(a: any, b: any) {
 //     const { peer, c, authHdr, selfBase } = ctx(req);
 //     requireRole(peer, 'verifier');
 
-//     const { consentId, purpose = 'treatment', operation = 'read' } = req.body || {};
+//     const { consentId, purpose = 'pcode001', operation = 'ocode001' } = req.body || {};
 //     if (!consentId) return res.status(400).json({ error: 'consentId is required' });
 
 //     // 1) Find a completed/verified proof exchange that contains this consentId
@@ -2090,7 +2890,7 @@ router.post('/proofs/verify', async (req: any, res, next) => {
     const { peer, c, authHdr, selfBase } = ctx(req);
     requireRole(peer, 'verifier');
 
-    const { consentId, purpose = 'treatment', operation = 'read' } = req.body || {};
+    const { consentId, purpose = 'pcode001', operation = 'ocode001' } = req.body || {};
     if (!consentId) return res.status(400).json({ error: 'consentId is required' });
 
     // 1) Find a completed/verified proof exchange that contains this consentId
