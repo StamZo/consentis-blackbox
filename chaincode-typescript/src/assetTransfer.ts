@@ -8,7 +8,7 @@ import { Context, Contract, Info, Transaction, Returns } from 'fabric-contract-a
 import stringify from 'json-stringify-deterministic';
 import sortKeysRecursive from 'sort-keys-recursive';
 import { ClientIdentity } from 'fabric-shim';
-import { VcAnchor, AuditEvent } from './asset'; 
+import { VcAnchor } from './asset'; 
 import { DID } from './did'; 
 import * as crypto from 'crypto';
 
@@ -328,7 +328,7 @@ export class VcAnchorContract extends Contract {
     public async VerifyAndLogAccess(
         ctx: Context,
         assetId: string,
-        accessRequestJson: string // {"purpose":["treatment"],"operation":["read"]}
+        accessRequestJson: string // {"purpose":["pcode001"],"operation":["ocode001"]}
         ): Promise<string> {         // <-- return JSON string
         this.Cid = new ClientIdentity(ctx.stub);
         if (this.Cid.getMSPID().slice(0, -3) !== "Org3") throw new Error('Only verifiers');
