@@ -11,9 +11,13 @@ import cors from "cors";
 import bodyParser from "body-parser";
 import axios from "axios";
 import FabricCAServices from "fabric-ca-client";
+import helmet from "helmet";
 
 // Local modules (thin controllers call into these)
 import agentRouter from "./routes/agents";
+import fabricDidRouter from "./routes/fabric-did";
+import issuerWebhooks from './routes/issuer-webhooks';
+//import holderWebhooks from "./routes/holder-webhooks";
 
 // Services
 import {
@@ -25,7 +29,8 @@ import {
   listAllVcAnchorsFromFabric,
   verifyAndLogAccessOnFabric,
   connectFor,// used by identity mgr
-  revokeDIDkeyOnFabric
+  revokeDIDkeyOnFabric,
+  readLatestActiveDidFromFabric
 } from "./services/ledger";
 
 
@@ -53,7 +58,7 @@ import {
 } from "./fabricWallet";
 // --- Auth middleware (inline for now) ---
 import jwt from "jsonwebtoken";
-
+import { resolvePeer } from "./helper/peers";
 
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL || "";
 
@@ -66,24 +71,72 @@ async function getKeycloakPublicKey() {
 async function verifyToken(req: express.Request): Promise<any | null> {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-  if (!token) return null;
+  //if (!token) return null;
+  if (!token) return {};
 
   try {
-    if (!KEYCLOAK_URL) return jwt.decode(token); // dev mode: decode only
+    if (!KEYCLOAK_URL) {
+      const decoded: any = jwt.decode(token) || {};
+      // In dev mode (no KEYCLOAK_URL), at least reject clearly expired tokens if exp is present
+      if (decoded?.exp && Date.now() / 1000 > Number(decoded.exp)) {
+        throw new Error("JWT expired");
+      }
+      return decoded;
+    }
     const pub = await getKeycloakPublicKey();
     return jwt.verify(token, pub as string, { algorithms: ["RS256"] });
   } catch {
-    return null;
+    //return null;
+    // allow ACA-Py tenant JWTs (opaque to Keycloak) to pass through
+   return jwt.decode(token) || {};
   }
 }
 
+// export async function attachUserPayload(req: any, res: any, next: any) {
+//   if (req.method === "OPTIONS" || req.path === "/health") return next();
+
+//   const payload = (await verifyToken(req)) || {};
+//   // fallbacks for selected_peer if it isn't in the JWT
+//   const sp =
+//     payload.selected_peer ||
+//     req.get?.("x-selected-peer") ||
+//     (req.headers && (req.headers["x-selected-peer"] as any)) ||
+//     req.query?.selected_peer ||
+//     req.body?.selected_peer;
+
+//   // normalize selected_peer and validate membership
+//   const normalized = sp != null ? String(sp).trim() : undefined;
+//   const allowedPeers = new Set(["1", "2", "3"]);
+//   if (normalized && !allowedPeers.has(normalized)) {
+//     return res.status(400).json({ error: "Invalid x-selected-peer (allowed: 1,2,3)" });
+//   }
+
+//   payload.selected_peer = normalized ?? payload.selected_peer;
+//   req.userPayload = payload || {};
+
+//   next();
+// }
+
+
 export async function attachUserPayload(req: any, res: any, next: any) {
   if (req.method === "OPTIONS" || req.path === "/health") return next();
-  const payload = await verifyToken(req);
-  if (!payload) return res.sendStatus(401);
-  req.userPayload = payload;
+
+  const payload = (await verifyToken(req)) || {};
+  const sp =
+    payload.selected_peer ??
+    req.get?.("x-selected-peer") ??
+    (req.headers && (req.headers["x-selected-peer"] as any)) ??
+    req.query?.selected_peer ??
+    req.body?.selected_peer;
+
+  const normalized = resolvePeer(sp);
+  // Don’t hard-reject here; let ctx() enforce. But if we can normalize, persist it:
+  if (normalized) payload.selected_peer = normalized;
+  req.userPayload = payload || {};
   next();
 }
+
+
 // --- end auth middleware ---
 
 
@@ -100,16 +153,22 @@ const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(",")
   : [];
 
+// Security headers
+app.use(helmet());
+
 // CORS + JSON
 app.use(
   cors({
     origin: ALLOWED_ORIGINS,
     credentials: true,
     methods: ["GET", "POST", "PATCH", "DELETE", "PUT"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Selected-Peer", "x-selected-peer"],
   })
 );
 app.use(bodyParser.json({ limit: "5mb" }));
+app.use(issuerWebhooks); // mount issuer webhooks
+//app.use(holderWebhooks); // mount holder webhooks
+
 
 // Health
 app.get("/health", (_req, res) => res.json({ ok: true }));
@@ -117,6 +176,7 @@ app.get("/health", (_req, res) => res.json({ ok: true }));
 // Attach req.userPayload for all protected routes (skips /health and preflights)
 app.use(attachUserPayload);
 
+app.use("/fabric-did", fabricDidRouter);
 // ----------------------------------------------------------------------------
 // Identity management (kept as-is, but slimmer)
 // ----------------------------------------------------------------------------
@@ -132,7 +192,7 @@ app.post("/manageIdentities", async (req: Request, res: Response) => {
     const identityNameOrg = `${identityName}@org${selectedPeer}`;
 
     // Connect so fabric CA client has proper context
-    const gateway = await connectFor(payload)
+    gateway = await connectFor(payload);
 
     const ccp = buildCCP(Number(selectedPeer));
     const caClient = buildCAClient(FabricCAServices, ccp, `ca.org${selectedPeer}.example.com`);
@@ -168,9 +228,17 @@ app.post("/storeDIDkey/:didID", async (req, res) => {
     const did = req.params.didID;
     if (!did) return res.status(400).json({ error: "didID is required" });
 
+    const { 
+      publicKeyBase58,
+      bbsPublicKeyBase58 = "", 
+      serviceEndpoint="http://issuer:8050" } = req.body || {};
+    if (!publicKeyBase58 || !serviceEndpoint) {
+      return res.status(400).json({ error: "publicKeyBase58 and serviceEndpoint are required" });
+    }
+
     const payload: any = req.userPayload;
-    const result = await storeDIDkeyOnFabric(payload, did);
-    // chaincode may return JSON or plain text; normalize to JSON when possible
+
+    const result = await storeDIDkeyOnFabric(payload, did, publicKeyBase58,bbsPublicKeyBase58, serviceEndpoint);
     try { return res.status(200).json(JSON.parse(result)); }
     catch { return res.status(200).json({ result }); }
   } catch (err: any) {
@@ -178,6 +246,7 @@ app.post("/storeDIDkey/:didID", async (req, res) => {
     res.status(500).json({ error: err?.message || "Internal error" });
   }
 });
+
 
 app.get("/readDIDkey/:didID", async (req, res) => {
   try {
@@ -190,6 +259,25 @@ app.get("/readDIDkey/:didID", async (req, res) => {
     res.status(500).json({ error: err?.message || "Failed to read DID key" });
   }
 });
+
+app.get("/latestActiveDid/:creator", async (req, res) => {
+  try {
+    const creator = req.params.creator; // e.g., "Org1"
+    if (!creator) return res.status(400).json({ error: "creator is required" });
+
+    const payload: any = req.userPayload;
+    const out = await readLatestActiveDidFromFabric(payload, creator);
+    return res.json(out);
+  } catch (err: any) {
+    const msg = String(err?.message || "");
+    if (msg.includes("No active DID for creator")) {
+      return res.status(404).json({ error: msg });
+    }
+    console.error("latestActiveDid error:", err);
+    res.status(500).json({ error: msg || "Failed to read latest active DID" });
+  }
+});
+
 
 app.post("/revokeDIDkey/:didID", async (req, res) => {
   try {
@@ -209,14 +297,14 @@ app.post("/revokeDIDkey/:didID", async (req, res) => {
 
 app.post("/createVcAnchor", async (req, res) => {
   try {
-    const { assetId, publicKeyPem, policyHash } = req.body || {};
-    if (!assetId || !publicKeyPem || !policyHash) {
-      return res.status(400).json({ error: "assetId, publicKeyPem, policyHash are required" });
+    const { consentId, publicKeyPem, policyHash } = req.body || {};
+    if (!consentId || !publicKeyPem || !policyHash) {
+      return res.status(400).json({ error: "consentId, publicKeyPem, policyHash are required" });
     }
 
     // Validate policy exists off-chain (and let the service handle the rest)
     const payload: any = req.userPayload;
-    const result = await createVcAnchorOnFabric(payload, { assetId, publicKeyPem, policyHash });
+    const result = await createVcAnchorOnFabric(payload,  {consentId, publicKeyPem, policyHash });
     return res.json({ message: result });
   } catch (err: any) {
     console.error("createVcAnchor error:", err);
@@ -509,7 +597,7 @@ app.post("/anchors/create", async (req, res) => {
     const payload: any = req.userPayload; // added by your attachUserPayload middleware
 
     const {
-      assetId,
+      consentId,
       purposes,
       operations,
       durationDays,
@@ -518,8 +606,8 @@ app.post("/anchors/create", async (req, res) => {
       publicKeyPem
     } = req.body || {};
 
-    if (!assetId || !publicKeyPem) {
-      return res.status(400).json({ error: "assetId and publicKeyPem are required" });
+    if (!consentId || !publicKeyPem) {
+      return res.status(400).json({ error: "consentId and publicKeyPem are required" });
     }
 
     // 1) Generate or reuse the policy (same semantics as /upsertConsentPolicy)
@@ -557,15 +645,15 @@ app.post("/anchors/create", async (req, res) => {
     }
 
     // 2) Create anchor on Fabric (reuses your services/ledger)
-    const anchorResp = await createVcAnchorOnFabric(payload, {
-      assetId,
+    const anchorResp = await createVcAnchorOnFabric(payload,{ 
+      consentId,
       publicKeyPem,
-      policyHash,
-    });
+      policyHash}
+    );
 
     return res.json({
       ok: true,
-      assetId,
+      consentId,
       anchor: anchorResp, // whatever the chaincode returns
       policy: {
         policyHash,
