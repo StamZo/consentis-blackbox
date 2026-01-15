@@ -1,3 +1,5 @@
+// src/services/ledger.ts
+
 import { Gateway, GatewayOptions } from 'fabric-network';
 import { buildCCP } from '../AppUtil';
 import { setupWallet } from '../fabricWallet';
@@ -28,7 +30,7 @@ export async function connectFor(payload: UserPayload) {
   return gw;
 }
 
-async function withContract<T>(payload: UserPayload, fn: (c: any)=>Promise<T>): Promise<T> {
+export async function withContract<T>(payload: UserPayload, fn: (c: any)=>Promise<T>): Promise<T> {
   const gw = await connectFor(payload);
   try {
     const net = await gw.getNetwork(channelName);
@@ -40,13 +42,28 @@ async function withContract<T>(payload: UserPayload, fn: (c: any)=>Promise<T>): 
 }
 
 // ---- DID registry ----
-export async function storeDIDkeyOnFabric(payload: UserPayload, did: string) {
-  return withContract(payload, async c => (await c.submitTransaction('storeDIDkey', did)).toString());
+export async function storeDIDkeyOnFabric(
+  payload: UserPayload,
+  did: string,
+  publicKeyBase58: string,
+  bbsPublicKeyBase58: string | null | undefined,
+  serviceEndpoint: string,
+) {
+  return withContract(payload, async c =>
+    (await c.submitTransaction('storeDIDkey', did, publicKeyBase58, bbsPublicKeyBase58, serviceEndpoint)).toString()
+  );
 }
+
 export async function readDIDkeyFromFabric(payload: UserPayload, did: string) {
   const text = await withContract(payload, async c => (await c.evaluateTransaction('readDIDkey', did)).toString());
   return JSON.parse(text);
 }
+
+export async function readLatestActiveDidFromFabric(payload: UserPayload, creator: string) {
+  const text = await withContract(payload, async c => (await c.evaluateTransaction('latestActiveDid', creator)).toString());
+  return JSON.parse(text);
+}
+
 export async function revokeDIDkeyOnFabric(payload: UserPayload, did: string) {
   return withContract(payload, async c => (await c.submitTransaction('revokeDIDkey', did)).toString());
 }
@@ -56,11 +73,11 @@ export async function revokeDIDkeyOnFabric(payload: UserPayload, did: string) {
 
 export async function createVcAnchorOnFabric(
   payload: any,
-  input: { assetId: string; publicKeyPem: string; policyHash: string }
+  input: { consentId: string; publicKeyPem: string; policyHash: string }
 ) {
   const gateway = await connectFor(payload);
   try {
-    const { assetId, publicKeyPem, policyHash } = input;
+    const { consentId, publicKeyPem, policyHash } = input;
 
     const doc: any = await getPolicyByHash(policyHash);
     if (!doc) throw new Error("Unknown policyHash");
@@ -78,7 +95,7 @@ export async function createVcAnchorOnFabric(
     const contract = network.getContract(process.env.CHAINCODE_NAME || "basic", "VcAnchorContract");
     const buf = await contract.submitTransaction(
       "CreateVcAnchor",
-      assetId,
+      consentId,
       publicKeyPem,
       policyHash,
       templateHash,
@@ -93,6 +110,9 @@ export async function createVcAnchorOnFabric(
   }
 }
 
+// export async function createVcAnchorOnFabric(payload: UserPayload, consentId: string, publicKeyPem: string, policyHash: string) {
+//   return withContract(payload, async c => (await c.submitTransaction('CreateVcAnchor', consentId, publicKeyPem, policyHash)).toString());
+// }
 
 export async function revokeVcOnFabric(payload: UserPayload, assetId: string, publicKeyPem: string, signature: string) {
   return withContract(payload, async c => (await c.submitTransaction('RevokeVc', assetId, publicKeyPem, signature)).toString());
