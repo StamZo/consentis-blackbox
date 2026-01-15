@@ -1,0 +1,141 @@
+services:
+  issuer:
+    image: ghcr.io/openwallet-foundation/acapy-agent-bbs:py3.12-1.3.0
+    ports:
+      - "8050:8050"  # Inbound transport port
+      - "8051:8051"  # Admin API port
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./plugins/acapy_resolver_fabric:/plugins/acapy_resolver_fabric:ro
+    environment:
+      - PYTHONPATH=/plugins/acapy_resolver_fabric
+      - FABRIC_RESOLVER_URL=http://host.docker.internal:8000/fabric-did
+      - FABRIC_SELECTED_PEER=issuer
+    command: >
+      start
+        --label "Issuer Agent"
+        --endpoint "http://issuer:8050"
+        --inbound-transport http 0.0.0.0 8050
+        --outbound-transport http
+        --admin 0.0.0.0 8051
+        --admin-insecure-mode
+        --auto-accept-requests
+        --auto-respond-credential-proposal
+        --auto-respond-credential-offer
+        --auto-respond-credential-request
+        --auto-store-credential
+        --auto-ping-connection
+        --wallet-type askar
+        --wallet-name issuer_base_wallet
+        --wallet-key issuer_base_key
+        --no-ledger
+        --log-level debug
+        --auto-provision
+        --public-invites
+        --auto-accept-invites
+        --emit-new-didcomm-prefix
+        --emit-new-didcomm-mime-type
+        --webhook-url http://webhook-receiver:9000/issuer
+        --webhook-url http://host.docker.internal:8000/webhooks/issuer
+        --requests-through-public-did
+        --plugin acapy_resolver_fabric
+    networks: [aries_network]
+
+  holder:
+    image: ghcr.io/openwallet-foundation/acapy-agent-bbs:py3.12-1.3.0
+    ports:
+      - "8060:8060"
+      - "8061:8061"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./plugins/acapy_resolver_fabric:/plugins/acapy_resolver_fabric:ro
+    environment:
+      - PYTHONPATH=/plugins/acapy_resolver_fabric
+      - FABRIC_RESOLVER_URL=http://host.docker.internal:8000/fabric-did
+      - FABRIC_SELECTED_PEER=holder
+    command: >
+      start
+        --label "Holder Agent"
+        --endpoint "http://holder:8060"
+        --inbound-transport http 0.0.0.0 8060
+        --outbound-transport http
+        --admin 0.0.0.0 8061
+        --admin-insecure-mode
+        --auto-store-credential
+        --auto-ping-connection
+        --auto-respond-credential-proposal
+        --auto-respond-credential-offer
+        --wallet-type askar
+        --wallet-name holder_base_wallet
+        --wallet-key holder_base_key
+        --no-ledger
+        --log-level debug
+        --auto-provision
+        --public-invites
+        --auto-accept-invites
+        --auto-accept-requests
+        --emit-new-didcomm-prefix
+        --emit-new-didcomm-mime-type
+        --webhook-url http://webhook-receiver:9000/holder
+        --multitenant
+        --multitenant-admin
+        --jwt-secret supersecret-holder-jwt
+        --preserve-exchange-records
+        --plugin acapy_resolver_fabric
+    networks: [aries_network]
+
+  verifier:
+    image: ghcr.io/openwallet-foundation/acapy-agent-bbs:py3.12-1.3.0
+    ports:
+      - "8070:8070"
+      - "8071:8071"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./plugins/acapy_resolver_fabric:/plugins/acapy_resolver_fabric:ro
+    environment:
+      - PYTHONPATH=/plugins/acapy_resolver_fabric
+      - FABRIC_RESOLVER_URL=http://host.docker.internal:8000/fabric-did
+      - FABRIC_SELECTED_PEER=verifier
+    command: >
+      start
+        --label "Verifier Agent"
+        --endpoint "http://verifier:8070"
+        --inbound-transport http 0.0.0.0 8070
+        --outbound-transport http
+        --admin 0.0.0.0 8071
+        --admin-insecure-mode
+        --auto-ping-connection
+        --wallet-type askar
+        --wallet-name verifier_base_wallet
+        --wallet-key verifier_base_key
+        --no-ledger
+        --log-level debug
+        --auto-provision
+        --public-invites
+        --auto-accept-invites
+        --auto-accept-requests
+        --emit-new-didcomm-prefix
+        --emit-new-didcomm-mime-type
+        --webhook-url http://webhook-receiver:9000/verifier
+        --multitenant
+        --multitenant-admin
+        --jwt-secret supersecret-verifier-jwt
+        --plugin acapy_resolver_fabric
+    networks: [aries_network]
+
+  webhook-receiver:
+    build:
+      context: ./webhook-receiver
+      dockerfile: Dockerfile
+    ports:
+      - "9000:9000"          # http://localhost:9000
+    environment:
+      - ADMIN_API_KEY=       # blank if you use --admin-insecure-mode
+    networks: [aries_network]
+
+networks:
+  aries_network:
+    driver: bridge

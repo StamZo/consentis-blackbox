@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "acapy-resolver-fabric"
+version = "0.0.1"
+requires-python = ">=3.10"
+dependencies = ["aiohttp>=3.8.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["acapy_resolver_fabric*"]
