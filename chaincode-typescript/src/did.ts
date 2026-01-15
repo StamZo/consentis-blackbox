@@ -9,7 +9,7 @@ export class DID {
     public didID: string; // base64 or hex-encoded public key (used as the primary key)
 
     @Property()
-    public creator: string; // base64 or hex-encoded public key (used as the primary key)
+    public creator: string; 
 
     @Property()
     public revoked: boolean = false;
@@ -19,6 +19,15 @@ export class DID {
 
     @Property()
     public revokedTimestamp: string | null = null;
+    
+    @Property()
+    public publicKeyBase58: string = "";
+
+    @Property()
+    public bbsPublicKeyBase58: string | null = null; 
+
+    @Property()
+    public serviceEndpoint: string = "";
 
     @Property()
     public auditTrail: DIDAuditEvent[] = [];
