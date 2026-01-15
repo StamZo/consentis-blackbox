@@ -1,0 +1,928 @@
+{
+	"info": {
+		"_postman_id": "ad4dbc61-a89c-41cf-9679-fc9b9f50fa1c",
+		"name": "consentis admin blackbox multitenancy Implicit Invitation",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "23792500"
+	},
+	"item": [
+		{
+			"name": "http://localhost:8000/fabric-did/resolve?did=did:fabric:issuer",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"auth": {
+					"type": "jwt",
+					"jwt": [
+						{
+							"key": "payload",
+							"value": "{\r\n  \"selected_peer\": \"1\",\r\n  \"peer_port\": \"9051\"\r\n}",
+							"type": "string"
+						},
+						{
+							"key": "isSecretBase64Encoded",
+							"value": false,
+							"type": "boolean"
+						},
+						{
+							"key": "secret",
+							"value": "secret",
+							"type": "string"
+						},
+						{
+							"key": "algorithm",
+							"value": "HS256",
+							"type": "string"
+						},
+						{
+							"key": "addTokenTo",
+							"value": "header",
+							"type": "string"
+						},
+						{
+							"key": "headerPrefix",
+							"value": "Bearer",
+							"type": "string"
+						},
+						{
+							"key": "queryParamKey",
+							"value": "token",
+							"type": "string"
+						},
+						{
+							"key": "header",
+							"value": "{}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"purposes\": \"treatment\",\n    \"operations\": \"read\",\n    \"durationDays\": 365,\n    \"assuranceLevel\": \"AL1\",\n    \"version\": \"3\"\n}\n\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8000/fabric-did/resolve?did=did:fabric:issuer",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"fabric-did",
+						"resolve"
+					],
+					"query": [
+						{
+							"key": "did",
+							"value": "did:fabric:issuer"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:8061/multitenancy/wallet",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n     \"wallet_name\": \"stam_wallet\"\n    , \"wallet_key\": \"stam_key\"\n    , \"label\": \"stam(tenant)\"\n    , \"wallet_type\": \"askar\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8061/multitenancy/wallet",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8061",
+					"path": [
+						"multitenancy",
+						"wallet"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:8061/didexchange/create-request?their_public_did=did:fabric:issuer&alias=issuer&auto_accept=true",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJlNzM3ZDI5Mi1jOGYxLTRlM2EtODM4NS1iZjdmNTU4YzIwNzEiLCJpYXQiOjE3Njc5NzIxODB9.ajHSBHe7tT7xOe8Bk58n2yY400jnGt8ogDW6q8L9EXQ",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "X-Selected-Peer",
+						"value": "issuer",
+						"type": "text"
+					},
+					{
+						"key": "Authorization",
+						"value": "Bearer <ACAPY_TENANT_JWT>",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{ \"alias\": \"Alice\"}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8061/didexchange/create-request?their_public_did=did:fabric:issuer&alias=issuer&auto_accept=true&protocol=didexchange/1.1&service_accept=didcomm/v2&service_accept=didcomm/aip2;env=rfc19",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8061",
+					"path": [
+						"didexchange",
+						"create-request"
+					],
+					"query": [
+						{
+							"key": "their_public_did",
+							"value": "did:fabric:issuer"
+						},
+						{
+							"key": "alias",
+							"value": "issuer"
+						},
+						{
+							"key": "auto_accept",
+							"value": "true"
+						},
+						{
+							"key": "protocol",
+							"value": "didexchange/1.1"
+						},
+						{
+							"key": "service_accept",
+							"value": "didcomm/v2"
+						},
+						{
+							"key": "service_accept",
+							"value": "didcomm/aip2;env=rfc19"
+						}
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "credentials/w3c Copy",
+			"request": {
+				"auth": {
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiI1N2U0NjE1OC0xYWRlLTRlMzctYWE3Mi1lMTRjNzU3ZTFlZWMiLCJpYXQiOjE3NjM2NDUwMjF9.RIOEmAi1hBmDoLlUNCs4fkiPA_2Lh_OBRvukuZ5KvMk",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://0.0.0.0:8061/credentials/w3c",
+					"protocol": "http",
+					"host": [
+						"0",
+						"0",
+						"0",
+						"0"
+					],
+					"port": "8061",
+					"path": [
+						"credentials",
+						"w3c"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:8000/generateConsentPolicy",
+			"request": {
+				"auth": {
+					"type": "jwt",
+					"jwt": [
+						{
+							"key": "payload",
+							"value": "{\r\n  \"selected_peer\": \"1\",\r\n  \"peer_port\": \"9051\"\r\n}",
+							"type": "string"
+						},
+						{
+							"key": "isSecretBase64Encoded",
+							"value": false,
+							"type": "boolean"
+						},
+						{
+							"key": "secret",
+							"value": "secret",
+							"type": "string"
+						},
+						{
+							"key": "algorithm",
+							"value": "HS256",
+							"type": "string"
+						},
+						{
+							"key": "addTokenTo",
+							"value": "header",
+							"type": "string"
+						},
+						{
+							"key": "headerPrefix",
+							"value": "Bearer",
+							"type": "string"
+						},
+						{
+							"key": "queryParamKey",
+							"value": "token",
+							"type": "string"
+						},
+						{
+							"key": "header",
+							"value": "{}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"purposes\": \"treatment\",\n    \"operations\": \"read\",\n    \"durationDays\": 365,\n    \"assuranceLevel\": \"AL1\",\n    \"version\": \"3\"\n}\n\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8000/upsertConsentPolicy",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"upsertConsentPolicy"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:8000/getPolicyByHash/:hash",
+			"protocolProfileBehavior": {
+				"disableBodyPruning": true
+			},
+			"request": {
+				"auth": {
+					"type": "jwt",
+					"jwt": [
+						{
+							"key": "payload",
+							"value": "{\r\n  \"selected_peer\": \"1\",\r\n  \"peer_port\": \"9051\"\r\n}",
+							"type": "string"
+						},
+						{
+							"key": "isSecretBase64Encoded",
+							"value": false,
+							"type": "boolean"
+						},
+						{
+							"key": "secret",
+							"value": "secret",
+							"type": "string"
+						},
+						{
+							"key": "algorithm",
+							"value": "HS256",
+							"type": "string"
+						},
+						{
+							"key": "addTokenTo",
+							"value": "header",
+							"type": "string"
+						},
+						{
+							"key": "headerPrefix",
+							"value": "Bearer",
+							"type": "string"
+						},
+						{
+							"key": "queryParamKey",
+							"value": "token",
+							"type": "string"
+						},
+						{
+							"key": "header",
+							"value": "{}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "GET",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8000/getPolicyByHash/47deabae8a6fa736f02594bea45ae4c18b11b002b274046358e618d7d9f1b031",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"getPolicyByHash",
+						"47deabae8a6fa736f02594bea45ae4c18b11b002b274046358e618d7d9f1b031"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:8000/deletePolicyByHash:hash",
+			"request": {
+				"auth": {
+					"type": "jwt",
+					"jwt": [
+						{
+							"key": "payload",
+							"value": "{\r\n  \"selected_peer\": \"1\",\r\n  \"peer_port\": \"9051\"\r\n}",
+							"type": "string"
+						},
+						{
+							"key": "isSecretBase64Encoded",
+							"value": false,
+							"type": "boolean"
+						},
+						{
+							"key": "secret",
+							"value": "secret",
+							"type": "string"
+						},
+						{
+							"key": "algorithm",
+							"value": "HS256",
+							"type": "string"
+						},
+						{
+							"key": "addTokenTo",
+							"value": "header",
+							"type": "string"
+						},
+						{
+							"key": "headerPrefix",
+							"value": "Bearer",
+							"type": "string"
+						},
+						{
+							"key": "queryParamKey",
+							"value": "token",
+							"type": "string"
+						},
+						{
+							"key": "header",
+							"value": "{}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8000/deletePolicyByHash/47deabae8a6fa736f02594bea45ae4c18b11b002b274046358e618d7d9f1b031",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"deletePolicyByHash",
+						"47deabae8a6fa736f02594bea45ae4c18b11b002b274046358e618d7d9f1b031"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:8000/deriveKeypair",
+			"request": {
+				"auth": {
+					"type": "jwt",
+					"jwt": [
+						{
+							"key": "payload",
+							"value": "{\r\n  \"selected_peer\": \"2\",\r\n  \"peer_port\": \"9051\"\r\n}",
+							"type": "string"
+						},
+						{
+							"key": "isSecretBase64Encoded",
+							"value": false,
+							"type": "boolean"
+						},
+						{
+							"key": "secret",
+							"value": "secret",
+							"type": "string"
+						},
+						{
+							"key": "algorithm",
+							"value": "HS256",
+							"type": "string"
+						},
+						{
+							"key": "addTokenTo",
+							"value": "header",
+							"type": "string"
+						},
+						{
+							"key": "headerPrefix",
+							"value": "Bearer",
+							"type": "string"
+						},
+						{
+							"key": "queryParamKey",
+							"value": "token",
+							"type": "string"
+						},
+						{
+							"key": "header",
+							"value": "{}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"seed\": \"c2VjcmV0bWFzdGVyc2VlZA==\",\n  \"assetId\": \"consent-abc123456|salt-002\"\n}\n\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8000/deriveKeypair",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"deriveKeypair"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:8000/createVcAnchor",
+			"request": {
+				"auth": {
+					"type": "jwt",
+					"jwt": [
+						{
+							"key": "payload",
+							"value": "{\r\n  \"selected_peer\": \"1\",\r\n  \"peer_port\": \"13051\"\r\n}",
+							"type": "string"
+						},
+						{
+							"key": "isSecretBase64Encoded",
+							"value": false,
+							"type": "boolean"
+						},
+						{
+							"key": "secret",
+							"value": "secret",
+							"type": "string"
+						},
+						{
+							"key": "algorithm",
+							"value": "HS256",
+							"type": "string"
+						},
+						{
+							"key": "addTokenTo",
+							"value": "header",
+							"type": "string"
+						},
+						{
+							"key": "headerPrefix",
+							"value": "Bearer",
+							"type": "string"
+						},
+						{
+							"key": "queryParamKey",
+							"value": "token",
+							"type": "string"
+						},
+						{
+							"key": "header",
+							"value": "{}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-selected-peer",
+						"value": "1",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\r\n  \"consentId\": \"consent-abc123456|salt-002\",\r\n  \"publicKeyPem\": \"-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAGoluB5packtdLCsWFyRFIvBi+rbJWY/3bdUB90HQoEU=\\n-----END PUBLIC KEY-----\\n\",\r\n  \"policyHash\": \"9cf76c91124a8c3f6028b15b6e6f47f154759cb72ba3fb3a5dd9791e545c8a95\"          \r\n}\r\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8000/createVcAnchor",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"createVcAnchor"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:8000/storeDIDkey",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-selected-peer",
+						"value": "1",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"publicKeyBase58\":\"EnhuW1o3q5atjAEQYcKW158tHJAg6cEtyvwamQAYSfyB\"\n    ,\"bbsPublicKeyBase58\":\"mnwYmuih4SmAxGSrfECrfgKVTiRcMrb3g5Z3so7Ho8ijodEE6ArNFaLLJXBLEekSH2dZVqsjhwCBSU41oFWVab1KxmNEztGLiX51BHt3vLK2duGMMxcPgJrKyKocr6uz68d\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8000/storeDIDkey/did:fabric:issuer",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"storeDIDkey",
+						"did:fabric:issuer"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:8000/readVcAnchor/key-123",
+			"request": {
+				"auth": {
+					"type": "bearer"
+				},
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-selected-peer",
+						"value": "2",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "http://localhost:8000/readVcAnchor/123456a",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"readVcAnchor",
+						"123456a"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:8000/signVcAnchorAction",
+			"request": {
+				"auth": {
+					"type": "jwt",
+					"jwt": [
+						{
+							"key": "payload",
+							"value": "{\r\n  \"selected_peer\": \"2\",\r\n  \"peer_port\": \"9051\"\r\n}",
+							"type": "string"
+						},
+						{
+							"key": "isSecretBase64Encoded",
+							"value": false,
+							"type": "boolean"
+						},
+						{
+							"key": "secret",
+							"value": "secret",
+							"type": "string"
+						},
+						{
+							"key": "algorithm",
+							"value": "HS256",
+							"type": "string"
+						},
+						{
+							"key": "addTokenTo",
+							"value": "header",
+							"type": "string"
+						},
+						{
+							"key": "headerPrefix",
+							"value": "Bearer",
+							"type": "string"
+						},
+						{
+							"key": "queryParamKey",
+							"value": "token",
+							"type": "string"
+						},
+						{
+							"key": "header",
+							"value": "{}",
+							"type": "string"
+						}
+					]
+				},
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"assetId\": \"123234asdas\",\n  \"timestamp\": \"2025-09-24T12:39:11.057Z\",\n  \"privateKeyPem\": \"-----BEGIN PRIVATE KEY-----\\nMC4CAQAwBQYDK2VwBCIEIGEpBi+cdYhk/2Kmdv0OQC9/uHLJK2zk455SQCp8AEAd\\n-----END PRIVATE KEY-----\\n\"\n}\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8000/signVcAnchorAction",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"signVcAnchorAction"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:8000/revokeVcAnchor",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-selected-peer",
+						"value": "2",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"assetId\": \"123234asdas\",\n  \"signature\": \"i1fzge+/L0pTAs2sb1XKbGtA5+waRDnNNcDeK3ZgX1ie4ELVjSQWzJK0SIPCmnId3fAqVywUAJFyU7IN4ELWBg==\",\n  \"publicKeyPem\": \"-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEABXvcj3+3X9IlZknj34XkAknKI0Lajwsp4rFcIUgOrmo=\\n-----END PUBLIC KEY-----\\n\"\n}\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8000/revokeVcAnchor",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"revokeVcAnchor"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:8000/verifyAndLogAccess",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-selected-peer",
+						"value": "3",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"assetId\": \"consent-abc123456|salt-001\",\n  \"accessRequest\": \"{\\\"purpose\\\":\\\"pcode001\\\",\\\"operation\\\":\\\"ocode001\\\"}\"\n}\n",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8000/verifyAndLogAccess",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"verifyAndLogAccess"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:8000/readDIDkey/did:fabric:issuer",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-selected-peer",
+						"value": "3",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "http://localhost:8000/readDIDkey/did:fabric:issuer",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"readDIDkey",
+						"did:fabric:issuer"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:8000/revokeDIDkey/:didID",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "POST",
+				"header": [
+					{
+						"key": "x-selected-peer",
+						"value": "1",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "http://localhost:8000/revokeDIDkey/did:key:zUC7GxCEHNVrHeQKfKfeiXzrDveHuYnccTtouHofs6NUD5VbowmKX18xZW7FoQV55FiA4FCuYSoRQhH3nH2LUR2sp31Lz9M12AnoE7PSvuquHnZpPBPGQYd3stZBZbyWbbhc1cT",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"revokeDIDkey",
+						"did:key:zUC7GxCEHNVrHeQKfKfeiXzrDveHuYnccTtouHofs6NUD5VbowmKX18xZW7FoQV55FiA4FCuYSoRQhH3nH2LUR2sp31Lz9M12AnoE7PSvuquHnZpPBPGQYd3stZBZbyWbbhc1cT"
+					]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "http://localhost:8000/getAllVcAnchors",
+			"request": {
+				"auth": {
+					"type": "noauth"
+				},
+				"method": "GET",
+				"header": [
+					{
+						"key": "x-selected-peer",
+						"value": "holder",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "http://localhost:8000/getAllVcAnchors",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "8000",
+					"path": [
+						"getAllVcAnchors"
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
