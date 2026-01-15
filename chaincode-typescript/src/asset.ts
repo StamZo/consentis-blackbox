@@ -38,8 +38,8 @@ export class VcAnchor {
     @Property()
     public allowedOperationHash?: string[];
 
-    @Property()
-    public constraintsSet?: string[];
+    // @Property()
+    // public constraintsSet?: string[];
 
     @Property()
     public createdTimestamp: string = '';
@@ -67,10 +67,6 @@ export class AuditEvent {
 
     @Property()
     public accessResult: boolean | null = null; // Success/fail for access attempts (null for revocations)
-
-    @Property() public purpose?: string[] | null;   // hashes
-  
-    @Property() public operation?: string[] | null; // hashes
   
     @Property() public reason?: string | null;      // e.g. "revoked" | "expired" | "purpose_not_allowed" | "operation_not_allowed" | "invalid_request"
 
