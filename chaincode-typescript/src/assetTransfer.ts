@@ -45,9 +45,37 @@ export class VcAnchorContract extends Contract {
 
         const exists = await this.AssetExists(ctx, didID);
         if (exists) {
-            throw new Error(`DID ${didID} already exists`);
+            const data = await ctx.stub.getState(didID);
+            const anchor: DID = JSON.parse(data.toString());
+            if (anchor.revoked) throw new Error('DID key is revoked.');
+
+            const txId = ctx.stub.getTxID();
+            const timestamp = ctx.stub.getTxTimestamp();
+            const updatedTimestamp = new Date(Number(timestamp.seconds) * 1000 + Math.round(timestamp.nanos / 1000000)).toISOString();
+            const bbs = !bbsPublicKeyBase58 || bbsPublicKeyBase58 === "null" ? null : bbsPublicKeyBase58;
+
+            const prevPublicKeyBase58 = anchor.publicKeyBase58;
+            const prevBbsPublicKeyBase58 = anchor.bbsPublicKeyBase58 ?? null;
+            const prevServiceEndpoint = anchor.serviceEndpoint ?? null;
+
+            anchor.publicKeyBase58 = publicKeyBase58;
+            anchor.bbsPublicKeyBase58 = bbs;
+            anchor.serviceEndpoint = serviceEndpoint;
+            anchor.revoked = false;
+            anchor.revokedTimestamp = null;
+            anchor.auditTrail = anchor.auditTrail || [];
+            anchor.auditTrail.push({
+                timestamp: updatedTimestamp,
+                txId,
+                action: 'rotated',
+                previousBbsPublicKeyBase58: prevBbsPublicKeyBase58,
+                bbsPublicKeyBase58: bbs,
+            });
+
+            await ctx.stub.putState(didID, Buffer.from(stringify(sortKeysRecursive(anchor))));
+            return `DID for ${didID} updated.`;
         }
-       
+
         const txId = ctx.stub.getTxID();
         const timestamp = ctx.stub.getTxTimestamp();
         const createdTimestamp = new Date(Number(timestamp.seconds) * 1000 + Math.round(timestamp.nanos / 1000000)).toISOString();
@@ -63,7 +91,15 @@ export class VcAnchorContract extends Contract {
             publicKeyBase58,
             bbsPublicKeyBase58: bbs,
             serviceEndpoint,
-            auditTrail: [{ timestamp: createdTimestamp, revoked: false, txId,  }]
+            auditTrail: [{
+                timestamp: createdTimestamp,
+                revoked: false,
+                txId,
+                action: 'created',
+                publicKeyBase58,
+                bbsPublicKeyBase58: bbs,
+                serviceEndpoint,
+            }]
         };
         await ctx.stub.putState(didID, Buffer.from(stringify(sortKeysRecursive(anchor))));
         const createdMs = Date.parse(createdTimestamp);
