@@ -61,7 +61,7 @@
 				"header": [],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n    \"purposes\": \"treatment\",\n    \"operations\": \"read\",\n    \"durationDays\": 365,\n    \"assuranceLevel\": \"AL1\",\n    \"version\": \"3\"\n}\n\n",
+					"raw": "",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -631,7 +631,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n    \"publicKeyBase58\":\"EnhuW1o3q5atjAEQYcKW158tHJAg6cEtyvwamQAYSfyB\"\n    ,\"bbsPublicKeyBase58\":\"mnwYmuih4SmAxGSrfECrfgKVTiRcMrb3g5Z3so7Ho8ijodEE6ArNFaLLJXBLEekSH2dZVqsjhwCBSU41oFWVab1KxmNEztGLiX51BHt3vLK2duGMMxcPgJrKyKocr6uz68d\"\n}",
+					"raw": "{\n    \"publicKeyBase58\":\"Cc5R2WZrngU8isYnd9VGfEvAh7PgbHgno3pbvprr2BCU\"\n    ,\"bbsPublicKeyBase58\":\"uryUi34GUnpM1BkzhVJyVKYsL19B9rvq1CzoBFu928rt6fkgKzD7eFs6GUCJX3hjU9E73aTegbkx63rHZwpoED6tHmDWkciqhUp5EWVe6NksyxRrpCoE8wFzPYiWZTT4P7P\"\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -668,7 +668,7 @@
 					}
 				],
 				"url": {
-					"raw": "http://localhost:8000/readVcAnchor/123456a",
+					"raw": "http://localhost:8000/readVcAnchor/",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -676,7 +676,7 @@
 					"port": "8000",
 					"path": [
 						"readVcAnchor",
-						"123456a"
+						""
 					]
 				}
 			},
@@ -882,7 +882,7 @@
 					}
 				},
 				"url": {
-					"raw": "http://localhost:8000/revokeDIDkey/did:key:zUC7GxCEHNVrHeQKfKfeiXzrDveHuYnccTtouHofs6NUD5VbowmKX18xZW7FoQV55FiA4FCuYSoRQhH3nH2LUR2sp31Lz9M12AnoE7PSvuquHnZpPBPGQYd3stZBZbyWbbhc1cT",
+					"raw": "http://localhost:8000/revokeDIDkey/did:fabric:issuer",
 					"protocol": "http",
 					"host": [
 						"localhost"
@@ -890,7 +890,7 @@
 					"port": "8000",
 					"path": [
 						"revokeDIDkey",
-						"did:key:zUC7GxCEHNVrHeQKfKfeiXzrDveHuYnccTtouHofs6NUD5VbowmKX18xZW7FoQV55FiA4FCuYSoRQhH3nH2LUR2sp31Lz9M12AnoE7PSvuquHnZpPBPGQYd3stZBZbyWbbhc1cT"
+						"did:fabric:issuer"
 					]
 				}
 			},
