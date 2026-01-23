@@ -41,6 +41,23 @@ function requireRole(peer: string, role: string) {
   }
 }
 
+async function rejectIfAliasTaken(res: any, c: any, alias?: string) {
+  if (!alias) return false;
+  try {
+    const connection_id = await connectionIdFromAlias(c, alias);
+    res.status(409).json({
+      error: 'alias_taken',
+      alias,
+      connection_id,
+      message: 'Alias already in use; choose another alias or delete the existing connection.',
+    });
+    return true;
+  } catch (e: any) {
+    if (e?.status === 404) return false;
+    throw e;
+  }
+}
+
 
 // --- Create a tenant wallet via :8000, forwarding to ACA-Py /multitenancy/wallet
 // router.post('/tenants/create', async (req: any, res, next) => {
@@ -392,7 +409,7 @@ router.post('/tenants/create', async (req: any, res, next) => {
 
 router.post('/did/bootstrap', async (req, res, next) => {
   try {
-    const { peer, authHdr, selfBase } = ctx(req);
+    const { peer, authHdr, selfBase, c } = ctx(req);
 
     const forceNew = !!req.body?.new;
     const isIssuer = hasRole(peer, 'issuer');
@@ -430,9 +447,42 @@ router.post('/did/bootstrap', async (req, res, next) => {
       publicVerkey = pub.verkey;
     }
 
-    // 3) Persist only for issuer
+    // 3) Persist only for issuer (skip if already exists and not forcing new)
     let stored = false, storeResult: any;
     if (isIssuer) {
+      if (!forceNew) {
+        try {
+          const payload: any = req.userPayload || {};
+          if (!payload.selected_peer) payload.selected_peer = String(peer);
+          const rec = await readDIDkeyFromFabric(payload, publicDid);
+          if (rec?.publicKeyBase58) publicVerkey = rec.publicKeyBase58;
+
+          // Try to resolve the BLS did:key that matches the on-chain BBS verkey
+          if (rec?.bbsPublicKeyBase58) {
+            try {
+              const { data: list } = await c.get('/wallet/did', {
+                params: { key_type: 'bls12381g2', method: 'key' },
+              });
+              const match = (list?.results || []).find(
+                (r: any) => r?.verkey === rec.bbsPublicKeyBase58
+              );
+              if (match?.did) bbsDid = match.did;
+            } catch { /* ignore */ }
+          }
+
+          stored = true;
+          storeResult = { result: `DID for ${publicDid} already exists.`, record: rec };
+          return res.json({
+            peer,
+            publicDid,
+            publicVerkey,
+            bbsDid: bbsDid || null,
+            stored,
+            storeResult,
+          });
+        } catch { /* not found or read error -> proceed to create */ }
+      }
+
       const serviceEndpoint =
         process.env.ISSUER_DIDCOMM_ENDPOINT || 'http://issuer:8050';
 
@@ -466,7 +516,7 @@ router.post('/did/bootstrap', async (req, res, next) => {
 // Connect to public DID (e.g., issuer's did:fabric)
 router.post('/connect-to-issuer', async (req: any, res, next) => {
   try {
-    const { peer } = ctx(req);
+    const { peer, c } = ctx(req);
     requireRole(peer, 'holder'); // adjust if you want verifier/issuer too
 
     const {
@@ -476,6 +526,8 @@ router.post('/connect-to-issuer', async (req: any, res, next) => {
       service_accept = ['didcomm/v2', 'didcomm/aip2;env=rfc19'],
       auto_accept = true,
     } = req.body || {};
+
+    if (await rejectIfAliasTaken(res, c, issuer_alias)) return;
 
     const result = await connectToPublicDid(req, peer, their_public_did, {
       alias: issuer_alias,
@@ -492,8 +544,9 @@ router.post('/connect-to-issuer', async (req: any, res, next) => {
 // Invitations
 router.post('/invitations/create', async (req: any, res, next) => {
   try {
-    const { peer } = ctx(req);           // typically issuer or verifier
+    const { peer, c } = ctx(req);           // typically issuer or verifier
     const { contact_alias, autoAccept = true } = req.body || {};
+    if (await rejectIfAliasTaken(res, c, contact_alias)) return;
     const inv = await createInvitation(req, peer, contact_alias, !!autoAccept);
     res.json({ peer, ...inv });
   } catch (e) { next(e); }
@@ -515,7 +568,7 @@ router.post('/invitations/create', async (req: any, res, next) => {
 // });
 router.post('/invitations/accept', async (req, res, next) => {
   try {
-    const { peer } = ctx(req);    // holder agent peer
+    const { peer, c } = ctx(req);    // holder agent peer
     const { invitation, invitation_url, contact_alias, alias } = req.body || {};
     const contactAlias = contact_alias || alias;
 
@@ -534,6 +587,8 @@ router.post('/invitations/accept', async (req, res, next) => {
     }
 
     if (!inv) return res.status(400).json({ error: 'invitation required' });
+
+    if (await rejectIfAliasTaken(res, c, contactAlias)) return;
 
     const out = await receiveInvitation(req, peer, inv, contactAlias);
     res.json({ peer, ...out });
@@ -873,39 +928,22 @@ function makeConsentId(): string {
 //     }
 
 
-// Minimal changes: allow items to be omitted and auto-fill from latest proof request (optional mirrorAlias).
-function extractRequiredItemsFromPD(rec: any): string[] {
-  const defs =
-    rec?.by_format?.pres_request?.dif?.presentation_definition?.input_descriptors ||
-    rec?.pres_request?.dif?.presentation_definition?.input_descriptors ||
-    rec?.presentation_request_dict?.dif?.presentation_definition?.input_descriptors ||
-    [];
-  const fields = (Array.isArray(defs) && defs[0]?.constraints?.fields) || [];
-  return fields
-    .filter((f: any) =>
-      Array.isArray(f?.path) &&
-      f.path.includes('$.credentialSubject.consentedItems[*]') &&
-      f?.filter?.const != null
-    )
-    .map((f: any) => String(f.filter.const).trim().toLowerCase());
-}
-
 router.post('/credentials/propose', async (req: any, res, next) => {
   try {
     const { peer, c } = ctx(req);  // holder peer
     requireRole(peer, 'holder');
 
-    // accept optional purposes/operations/durationDays, optional mirrorAlias
+    // accept optional purposes/operations/durationDays
     const {
       issuer_alias,
       requested_payload,
+      requested_payload_raw,
       seed,
       purposes,
       operations,
       durationDays,
       publicKeyPem: bodyPub,
       consentId: bodyConsentId,
-      verifier_alias,
     } = req.body || {};
 
     if (!issuer_alias) return res.status(400).json({ error: 'issuer_alias is required' });
@@ -929,62 +967,25 @@ router.post('/credentials/propose', async (req: any, res, next) => {
       }
     }
 
-
-    // Items: use request body if present; else mirror from latest cached proof request (optionally by mirrorAlias)
-   let effectiveItems: string[] = Array.isArray(requested_payload) ? requested_payload : [];
-    const presExId = String(
-    req.body?.pres_ex_id ?? req.body?.presExId ?? req.body?.requestId ?? ''
-  ).trim();
-    // If not supplied, try: requestId/presExId -> mirrorAlias -> latest
-    if (effectiveItems.length === 0) {
-      // 1) Specific proof request id
-      if (presExId) {
-        try {
-          const { data: rec } = await c.get(`/present-proof-2.0/records/${encodeURIComponent(presExId)}`);
-          if (rec?.state === 'request-received') {
-            const reqItems = extractRequiredItemsFromPD(rec);
-            if (reqItems.length) effectiveItems = reqItems;
-          }
-        } catch {
-          // ignore; fall through to next strategy
-        }
-      }
+    const requestedPayload = requested_payload;
+    if (!requestedPayload || typeof requestedPayload !== 'object' || Array.isArray(requestedPayload)) {
+      return res.status(400).json({ error: 'requested_payload (object) is required' });
     }
-    if (effectiveItems.length === 0) {
-      // Resolve optional mirrorAlias -> connection_id filter
-      let connection_id_filter: string | undefined;
-      if (verifier_alias) {
-        try {
-          connection_id_filter = await connectionIdFromAlias(c, verifier_alias);
-        } catch {
-          // ignore; will fall back to global latest
-        }
-      }
-
-      // Pull latest request-received record(s) directly from ACA-Py
-      const params: any = { state: 'request-received' };
-      if (connection_id_filter) params.connection_id = connection_id_filter;
-
-      const { data } = await c.get('/present-proof-2.0/records', { params });
-      const reqs: any[] = (data?.results || []);
-      if (reqs.length) {
-        reqs.sort((a, b) =>
-          new Date(b?.updated_at || b?.created_at || 0).getTime() -
-          new Date(a?.updated_at || a?.created_at || 0).getTime()
-        );
-        const latest = reqs[0];
-        const required = extractRequiredItemsFromPD(latest);
-        if (required.length) effectiveItems = required;
-      }
+    const payloadKeys = Object.keys(requestedPayload);
+    if (payloadKeys.length === 0) {
+      return res.status(400).json({ error: 'requested_payload (non-empty object) is required' });
     }
-
-    if (!Array.isArray(effectiveItems) || effectiveItems.length === 0) {
-      return res.status(400).json({ error: 'items[] (non-empty) is required (no pending proof request found)' });
+    if (!payloadKeys.every((key) => key.trim())) {
+      return res.status(400).json({ error: 'requested_payload keys must be non-empty strings' });
     }
-    if (!effectiveItems.every((s: any) => typeof s === 'string' && s.trim())) {
-      return res.status(400).json({ error: 'items must be non-empty strings' });
+    const consentedItems = normItems(payloadKeys);
+    if (requested_payload_raw != null && typeof requested_payload_raw !== 'string') {
+      return res.status(400).json({ error: 'requested_payload_raw must be a string' });
     }
-        const consentedItems = normItems(effectiveItems);
+    const requestedPayloadRaw =
+      typeof requested_payload_raw === 'string'
+        ? requested_payload_raw
+        : JSON.stringify(requestedPayload);
 
     // consentId: accept optional, else generate
     let consentId = bodyConsentId ? String(bodyConsentId).trim() : makeConsentId();
@@ -1043,6 +1044,8 @@ router.post('/credentials/propose', async (req: any, res, next) => {
       credentialSubject: {
         id: holderDid,
         consentId,
+        requested_payload: requestedPayload,
+        requested_payload_raw: requestedPayloadRaw,
         consentedItems,
         publicKeyPem,
         purposes: purposesArr,
@@ -1221,15 +1224,16 @@ function normItems(items: string[]): string[] {
   return Array.from(new Set(items.map(s => String(s).trim().toLowerCase()))).sort();
 }
 
-function buildItemsPD(presDef: any, name: string, purpose: string, items: string[]) {
+function buildItemsPD(presDef: any, name: string, items: string[]) {
   const PD = { ...(presDef || {}) };
   PD.id = PD.id || crypto.randomUUID?.() || String(Date.now());
   PD.format = PD.format || { ldp_vp: { proof_type: ['BbsBlsSignature2020'] } };
+  PD.name = PD.name || name;
   PD.input_descriptors = PD.input_descriptors || [{
     id: 'consent_vc',
     name,
     schema: [{ uri: 'https://www.w3.org/2018/credentials#VerifiableCredential' }],
-    constraints: { limit_disclosure: 'required', fields: [] }
+    constraints: { limit_disclosure: 'preferred', fields: [] }
     // allow holder to return the full VC (preferred) instead of forcing a derived proof
 
     // allow holder to return the full VC (preferred) instead of forcing a derived proof
@@ -1237,6 +1241,7 @@ function buildItemsPD(presDef: any, name: string, purpose: string, items: string
   }];
 
   const d0 = PD.input_descriptors[0];
+  d0.name = d0.name || name;
   d0.constraints = d0.constraints || {};
   d0.constraints.fields = d0.constraints.fields || [];
 
@@ -1244,7 +1249,6 @@ function buildItemsPD(presDef: any, name: string, purpose: string, items: string
   for (const it of items) {
     d0.constraints.fields.push({
       path: ['$.credentialSubject.consentedItems[*]'],
-      purpose,
       filter: { const: it }
     });
   }
@@ -1252,10 +1256,17 @@ function buildItemsPD(presDef: any, name: string, purpose: string, items: string
   // ALSO require consentId so verifiers can link to the on-chain anchor
   d0.constraints.fields.push({
     path: ['$.credentialSubject.consentId'],
-    purpose: 'Anchor lookup (link VC to on-chain consent)',
     // any string is acceptable; if you want stricter, use a regex pattern for your IDs
     filter: { type: 'string' }
     // e.g. filter: { pattern: '^c_[0-9a-f]{40}$' }
+  });
+
+  // Include the full consent payload by default (verifier doesn't need to know its keys).
+  d0.constraints.fields.push({
+    path: ['$.credentialSubject.requested_payload']
+  });
+  d0.constraints.fields.push({
+    path: ['$.credentialSubject.requested_payload_raw']
   });
 
   return PD;
@@ -1269,23 +1280,44 @@ router.post('/proofs/request', async (req: any, res, next) => {
 
     const {
       holder_alias,
-      request_payload,                      // NEW: array of strings
-      purpose = 'Consent check',
-      name = request_payload?.length ? `Consent check: ${request_payload.join(', ')}` : 'Consent check',
+      request_payload,                      // optional array of strings
+      request_label,                        // optional human-readable label
+      name,
       presentation_definition,
       options
     } = req.body || {};
 
     if (!holder_alias) return res.status(400).json({ error: 'holder_alias is required' });
-    if (!Array.isArray(request_payload) || request_payload.length === 0)
-      return res.status(400).json({ error: 'request_payload[] (non-empty) is required' });
+    if (request_payload != null && !Array.isArray(request_payload)) {
+      return res.status(400).json({ error: 'request_payload must be an array of strings' });
+    }
+    if (Array.isArray(request_payload) && !request_payload.every((s: any) => typeof s === 'string' && s.trim())) {
+      return res.status(400).json({ error: 'request_payload items must be non-empty strings' });
+    }
+
+    const requestLabel =
+      typeof request_label === 'string' && request_label.trim()
+        ? request_label.trim()
+        : undefined;
 
     const connection_id = await connectionIdFromAlias(c, holder_alias);
-    const wanted = normItems(request_payload);
-    const presDef = buildItemsPD(presentation_definition, name, purpose, wanted);
+    const wanted = Array.isArray(request_payload) ? normItems(request_payload) : [];
+    const defaultName = requestLabel || (wanted.length ? `Consent check: ${wanted.join(', ')}` : 'Consent request');
+    const effectiveName = name || defaultName;
+    const presDef = buildItemsPD(presentation_definition, effectiveName, wanted);
 
-    const out = await requestPresentation(req, peer, connection_id, presDef, options);
-    res.json({ peer, connection_id, requested: true, wantedItems: wanted, result: out });
+    const out = await requestPresentation(req, peer, connection_id, presDef, {
+      ...(options || {}),
+      comment: requestLabel ?? options?.comment
+    });
+    res.json({
+      peer,
+      connection_id,
+      requested: true,
+      request_label: requestLabel ?? null,
+      wantedItems: wanted,
+      result: out
+    });
   } catch (e) { next(e); }
 });
 
@@ -1443,6 +1475,20 @@ router.get('/proofs/inbox', async (req: any, res, next) => {
       }));
       const suggested = norm.length === 1 ? [norm[0].record_id] : pickRecordIds(norm);
 
+      const requested =
+        r?.by_format?.pres_request?.dif?.presentation_definition?.input_descriptors
+        || r?.pres_request?.dif?.presentation_definition?.input_descriptors
+        || r?.presentation_request_dict?.dif?.presentation_definition?.input_descriptors
+        || [];
+      const request_label =
+        r?.comment
+        || r?.presentation_request?.dif?.presentation_definition?.name
+        || r?.by_format?.pres_request?.dif?.presentation_definition?.name
+        || r?.pres_request?.dif?.presentation_definition?.name
+        || r?.presentation_request_dict?.dif?.presentation_definition?.name
+        || requested?.[0]?.name
+        || null;
+
       const difOptions =
         r?.by_format?.pres_request?.dif?.options
         || r?.pres_request?.dif?.options
@@ -1460,8 +1506,9 @@ router.get('/proofs/inbox', async (req: any, res, next) => {
         verifier_alias,                 // already included in your code
         thread_id: r.thread_id,
         state: r.state,
-        role: r.role,
-        requested: r?.by_format?.pres_request?.dif?.presentation_definition?.input_descriptors || [],
+        my_role: r.role,
+        request_label,
+        requested,
         suggested_record_ids: suggested,
         challenge,
         domain,
@@ -2294,6 +2341,39 @@ function extractConsentIdAny(rec: any): string | null {
   return null;
 }
 
+// helper that hunts requested_payload across ACA-Py shapes
+function extractRequestedPayloadAny(rec: any): Record<string, any> | null {
+  const a =
+    rec?.by_format?.pres?.dif?.verifiablePresentation?.verifiableCredential?.[0]?.credentialSubject?.requested_payload
+    ?? rec?.by_format?.pres?.dif?.presentation?.verifiableCredential?.[0]?.credentialSubject?.requested_payload;
+
+  if (a && typeof a === 'object' && !Array.isArray(a)) return a;
+
+  const b =
+    rec?.pres?.['presentations~attach']?.[0]?.data?.json?.verifiableCredential?.[0]?.credentialSubject?.requested_payload
+    ?? rec?.presentation?.['presentations~attach']?.[0]?.data?.json?.verifiableCredential?.[0]?.credentialSubject?.requested_payload;
+
+  if (b && typeof b === 'object' && !Array.isArray(b)) return b;
+
+  return null;
+}
+
+function extractRequestedPayloadRawAny(rec: any): string | null {
+  const a =
+    rec?.by_format?.pres?.dif?.verifiablePresentation?.verifiableCredential?.[0]?.credentialSubject?.requested_payload_raw
+    ?? rec?.by_format?.pres?.dif?.presentation?.verifiableCredential?.[0]?.credentialSubject?.requested_payload_raw;
+
+  if (typeof a === 'string') return a;
+
+  const b =
+    rec?.pres?.['presentations~attach']?.[0]?.data?.json?.verifiableCredential?.[0]?.credentialSubject?.requested_payload_raw
+    ?? rec?.presentation?.['presentations~attach']?.[0]?.data?.json?.verifiableCredential?.[0]?.credentialSubject?.requested_payload_raw;
+
+  if (typeof b === 'string') return b;
+
+  return null;
+}
+
 
 // router.get('/proofs/records', async (req: any, res, next) => {
 //   try {
@@ -2601,6 +2681,8 @@ router.get('/proofs/records', async (req: any, res, next) => {
     const detailed = await Promise.all(
       filtered.map(async (r: any) => {
         let consentId: string | null = extractConsentIdAny(r);
+        let requested_payload: Record<string, any> | null = extractRequestedPayloadAny(r);
+        let requested_payload_raw: string | null = extractRequestedPayloadRawAny(r);
         let abandoned_reason: string | null = null;
 
         // Try to read requested/challenge/domain directly from list record
@@ -2621,13 +2703,16 @@ router.get('/proofs/records', async (req: any, res, next) => {
 
         const presId = r.pres_ex_id || r.presentation_exchange_id || r._id;
 
+        const hasPresentation = ['presentation-received', 'done', 'verified'].includes(String(r?.state || ''));
+
         // Decide if we need the full record
         const needFull =
           !consentId ||
           r?.state === 'abandoned' ||
           !requested?.length ||
           !challenge ||
-          !domain;
+          !domain ||
+          (hasPresentation && (!requested_payload || !requested_payload_raw));
 
         if (needFull) {
           try {
@@ -2637,6 +2722,12 @@ router.get('/proofs/records', async (req: any, res, next) => {
 
             if (!consentId) {
               consentId = extractConsentIdAny(rec);
+            }
+            if (!requested_payload) {
+              requested_payload = extractRequestedPayloadAny(rec);
+            }
+            if (!requested_payload_raw) {
+              requested_payload_raw = extractRequestedPayloadRawAny(rec);
             }
             if (r?.state === 'abandoned') {
               const pr = extractProblemReportAny(rec);
@@ -2671,14 +2762,16 @@ router.get('/proofs/records', async (req: any, res, next) => {
         return {
           pres_ex_id: presId,
           connection_id,
-          alias,
+          contact_alias: alias,
           thread_id: r.thread_id,
           state: r.state,
-          role: r.role,
+          my_role: r.role,
           verified: extractVerifiedFlag(r),
           created_at: r.created_at,
           updated_at: r.updated_at,
           consentId,
+          requested_payload,
+          requested_payload_raw,
           abandoned_reason,
           requested,
           challenge,
