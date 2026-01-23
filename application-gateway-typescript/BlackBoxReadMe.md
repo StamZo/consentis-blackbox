@@ -9,7 +9,7 @@ This demo exposes a REST API on **`http://localhost:8000`** that orchestrates:
 The API wraps all ACA-Py and Fabric calls behind higher-level endpoints:
 
 - Tenant management (JWTs per holder/verifier)
-- DID bootstrap (with optional Fabric anchoring)
+- DID bootstrap (issuer anchoring on Fabric)
 - Connection setup (Issuer–Holder, Holder–Verifier)
 - Consent request (proof request) from Verifier
 - Consent issuance (VC) by Holder
@@ -100,7 +100,7 @@ Repeat the same call with `x-selected-peer: Verifier` to create verifier tenants
 
 
 ```http
-POST /agent/invitations/create
+POST /agent/did/bootstrap
 x-selected-peer: issuer         
 // or holder / verifier depending who creates the invitation
 Authorization: Bearer <tenant_jwt>   // for issuer and all tenants
@@ -116,10 +116,10 @@ Body:
 
 Behavior:
 
-- Without `new`: ensure an existing DID for the issuer.
-- With `"new": true`: create a new `did:key` (bls12381g2).
+- Without `new`: return existing keys (issuer reads the on-chain record; holder/verifier reuse latest wallet did:key).
+- With `"new": true`: create new did:key for all roles; for issuer this rotates the BLS key on-chain while keeping `did:fabric:issuer` stable.
 
-**For the issuer the anchoring is automated.Generally no other did key should be achored in the blockchain the DID key on Fabric**.
+**Issuer anchoring is automated. Only the issuer DID is anchored on Fabric.**
 
 
 ---
@@ -144,15 +144,17 @@ All fields are optional; defaults are used if omitted:
 
 ```json
 {
-  "issuer_alias": "issuer",
-  "their_public_did": "did:fabric:issuer",
-  "protocol": "didexchange/1.1",
-  "service_accept": ["didcomm/v2","didcomm/aip2;env=rfc19"],
-  "auto_accept": true
+  // "issuer_alias": "issuer",
+  // "their_public_did": "did:fabric:issuer",
+  // "protocol": "didexchange/1.1",
+  // "service_accept": ["didcomm/v2","didcomm/aip2;env=rfc19"],
+  // "auto_accept": true
 }
 ```
 
 Use invitations below for **Holder ↔ Verifier**.
+
+**Alias rule (active only):** The gateway rejects creating or accepting a connection if the alias already exists on an **active** connection. You’ll get `409 alias_taken` with the existing `connection_id`, so pick a different alias or delete the old connection.
 
 ### 4.1 Create invitation
 
@@ -189,8 +191,8 @@ Option A – directly use `invitation_url`:
 
 ```json
 {
-  "invitation_url": "http://issuer:8050?oob=eyJAdHlwZSI6ICJodHRwczovL2RpZGNvbW0ub3JnL291dC1vZi1iYW5kLzIuMC9pbnZpdGF0aW9uIiwgIkBpZCI6IC...",
-  "contact_alias": "Consentis"
+  "invitation_url": "http://verifier:8050?oob=eyJAdHlwZSI6ICJodHRwczovL2RpZGNvbW0ub3JnL291dC1vZi1iYW5kLzIuMC9pbnZpdGF0aW9uIiwgIkBpZCI6IC...",
+  "contact_alias": "DrX"
 }
 ```
 
@@ -201,7 +203,7 @@ Option B – pass the full `invitation` object:
   "invitation": {
     "@type": "https://didcomm.org/out-of-band/2.0/invitation",
     "@id": "9cb3361f-568c-4c12-8911-cb76f47dbbbb",
-    "label": "Issuer Agent",
+    "label": "Verifier Agent",
     "handshake_protocols": ["https://didcomm.org/didexchange/1.0"],
     "accept": ["didcomm/v2", "didcomm/aip2;env=rfc19"],
     "services": [
@@ -211,11 +213,11 @@ Option B – pass the full `invitation` object:
         "recipientKeys": [
           "did:key:z6MkkJw5zkCaNyo9asr1b7UcA7MEuEdyYAMRZAjuTiNTo41d#z6MkkJw5zkCaNyo9asr1b7UcA7MEuEdyYAMRZAjuTiNTo41d"
         ],
-        "serviceEndpoint": "http://issuer:8050"
+        "serviceEndpoint": "http://verifier:8050"
       }
     ]
   },
-  "contact_alias": "Consentis"
+  "contact_alias": "DrX"
 }
 ```
 
@@ -273,14 +275,22 @@ Body:
 ```json
 {
   "holder_alias": "John",
-  "request_payload": ["bloodwork", "xrays", "SOMETHING"]
+  "request_label": "DrX consent for claim 123"
 }
 ```
 
+Notes:
+- `request_payload` is optional. If omitted, the proof request still asks for `credentialSubject.consentId`.
+- By default the proof request also asks for `credentialSubject.requested_payload` so the verifier receives the full consent JSON.
+- If `request_payload` is provided, the proof request also requires those keys via `consentedItems[*]`.
+- `limit_disclosure` defaults to **`preferred`** so the holder can return the **full VC** (BbsBlsSignature2020).
+  - If you force `limit_disclosure: "required"` you may hit JSON-LD/BBS derived-proof failures unless the VC top-level `@context` includes the needed vocabularies or the payload uses full IRIs.
+
 This creates a DIF Presentation Exchange proof request. The API builds something like:
 
-- `credentialSubject.consentedItems[*]` filters for each requested item
+- `credentialSubject.consentedItems[*]` filters for each requested item (only if `request_payload` provided)
 - `credentialSubject.consentId` field for anchoring
+- `request_label` is stored as the request comment and PD name, so the holder can identify the request
 
 Response:
 
@@ -289,11 +299,8 @@ Response:
    "peer": "3",
     "connection_id": "023b5e44-072d-4e89-a064-00a01ecf9753",
     "requested": true,
-    "wantedItems": [
-        "bloodwork",
-        "somehthing",
-        "xrays"
-    ],
+    "request_label": "DrX consent for claim 123",
+    "wantedItems": [],
     "result": {
         "state": "request-sent",..............
 ..........
@@ -318,7 +325,7 @@ Optional filters:
 - by verifier alias:
 
   ```http
-  GET /agent/proofs/inbox?verifier_alias=Verifier
+  GET /agent/proofs/inbox?verifier_alias=DrX
   ```
 
 - by connection id:
@@ -327,7 +334,7 @@ Optional filters:
   GET /agent/proofs/inbox?connection_id=<uuid>
   ```
 
-Use the `pres_ex_id` and/or alias/connection in the next step if you want to tie the consent VC to a specific request.
+Use the `pres_ex_id` and/or verifier_alias/connection in the next step if you want to tie the consent VC to a specific request.
 
 ---
 
@@ -347,6 +354,36 @@ Minimal example:
 ```json
 {
   "issuer_alias": "Consentis",
+  "requested_payload": {
+    "consent": "grant",
+    "scope": { "labs": true }
+  },
+  "durationDays": 1,
+  "seed": "b64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+}
+```
+
+ConsentRecord example (JSON-LD terms embedded under `requested_payload`):
+
+```json
+{
+  "issuer_alias": "Consentis",
+  "requested_payload": {
+    "@context": {
+      "dpv": "https://w3id.org/dpv#",
+      "dpv-pd": "https://w3id.org/dpv/pd#",
+      "eu-gdpr": "https://w3id.org/dpv/legal/eu/gdpr#",
+      "ex": "https://consentis-example.com/vocab#"
+    },
+    "ConsentRecord": {
+      "Header": {
+        "Identifier": "urn:uuid:...",
+        "ConformsTo": "https://example.com/schemas/consent-record-v1.1.json",
+        "DataSubject": "UUID-NHR-Karavias"
+      }
+      // ... ProcessingInfo, Parties, Events ...
+    }
+  },
   "durationDays": 1,
   "seed": "b64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 }
@@ -359,13 +396,13 @@ Supported fields:
   "issuer_alias": "Consentis",
 
   // Consent scope
-  "requested_payload": ["xrays", "bloodwork", "something-new"],
-  "purposes": ["treatment"],
-  "operations": ["read"],
-
-  // Link to a specific proof request (for auto-fill of requested_payload):
-  "pres_ex_id": "972fc3ca-e6d6-4bda-908d-8c7e736c5e7a",
-  "verifier_alias": "DrX",
+  "requested_payload": {
+    "consent": "grant",
+    "scope": { "labs": true },
+    "notes": "ok"
+  },
+  "purposes": ["code001"],
+  "operations": ["code001"],
 
   // Validity
   "durationDays": 1,
@@ -383,11 +420,10 @@ Supported fields:
 Resolution rules:
 
 - **`requested_payload`**  
-  - If provided → used as-is.  
-  - If omitted → auto-filled from a proof request:
-    1. If `pres_ex_id` given → use that request.
-    2. Else if `verifier_alias` given → use latest request from that connection.
-    3. Else → use latest proof request in inbox.
+  - **Required.** Must be a non-empty object.  
+  - Stored as-is in the VC at `credentialSubject.requested_payload`.  
+  - The **top-level keys** become `consentedItems` (used by verifiers when they request specific items).  
+    If you include `@context` as a key, it will appear in `consentedItems`.
 
 - **Key material**  
   - If `publicKeyPem` is present → `seed` is ignored; consent is bound to that public key.  
@@ -517,17 +553,17 @@ Example verifier-side records for the same thread:
 [
   {
     "pres_ex_id": "e2ef3e65-1f44-4b3c-be43-69a00981504d",
-    "alias": "John",
+    "contact_alias": "John",
     "state": "abandoned",
-    "role": "verifier",
+    "my_role": "verifier",
     "consentId": null,
     "abandoned_reason": "abandoned: holder_denied_request"
   },
   {
     "pres_ex_id": "1fdeb974-e7a7-4a81-86ed-b1f80730781a",
-    "alias": "John",
+    "contact_alias": "John",
     "state": "done",
-    "role": "verifier",
+    "my_role": "verifier",
     "verified": true,
     "consentId": "c_296ad7bb98c1e3af0138f4f3489575629e551a0b",
     "abandoned_reason": null
@@ -552,8 +588,8 @@ Content-Type: application/json
 ```json
 {
   "consentId": "c_b69eeaba753e92d60e1ff495e58dc63bc8a1d545",
-  "purpose": "treatment",
-  "operation": "read"
+  "purpose": "code001",
+  "operation": "code001"
 }
 ```
 
