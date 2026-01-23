@@ -39,8 +39,29 @@ export class DIDAuditEvent {
     public timestamp: string; // ISO 8601 date
 
     @Property()
-    public revoked: boolean;
+    public revoked?: boolean;
 
     @Property()
     public txId: string; // Transaction ID for traceability
+
+    @Property()
+    public action?: string;
+
+    @Property()
+    public publicKeyBase58?: string;
+
+    @Property()
+    public bbsPublicKeyBase58?: string | null;
+
+    @Property()
+    public serviceEndpoint?: string | null;
+
+    @Property()
+    public previousPublicKeyBase58?: string;
+
+    @Property()
+    public previousBbsPublicKeyBase58?: string | null;
+
+    @Property()
+    public previousServiceEndpoint?: string | null;
 }
