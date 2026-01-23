@@ -16,7 +16,7 @@
 				"header": [
 					{
 						"key": "x-selected-peer",
-						"value": "3",
+						"value": "holder",
 						"type": "text"
 					},
 					{
@@ -27,7 +27,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{ \n    \"wallet_name\": \"drx_wallet\",\n    \"wallet_key\": \"drx_key\",\n    \"label\": \"drx (tenant)\"\n   // ,\"new_token\": true //if we want a new token\n}",
+					"raw": "{ \n    \"wallet_name\": \"alice_wallet\",\n    \"wallet_key\": \"alice_key\",\n    \"label\": \"alice (tenant)\"\n   // ,\"new_token\": true //if we want a new token\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -54,19 +54,26 @@
 			"name": "http://localhost:8000/agent/did/bootstrap",
 			"request": {
 				"auth": {
-					"type": "noauth"
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiI0N2EyZjcxYi1jNzA2LTRkMTAtODY1NC1mODdjM2ZkYmU1MjUiLCJpYXQiOjE3Njg5OTMyMTV9.-OpUjt40G-jej2O1JquhFL358uHFpJqbctF0Vzdblzs",
+							"type": "string"
+						}
+					]
 				},
 				"method": "POST",
 				"header": [
 					{
 						"key": "x-selected-peer",
-						"value": "verifier",
+						"value": "issuer",
 						"type": "text"
 					}
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n  //\"new\": true\n  //,\"persist\": true,        // optional: also store on Fabric if issuer or persist=true\n}\n",
+					"raw": "{\n //\"new\": true\n}\n",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -147,7 +154,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJkMTRlZjQ4Yy00YmM0LTQ3NzUtOTc0My1kMWVmNWY0ZDU4NWYiLCJpYXQiOjE3Njc5NzY4NDZ9.nA-VsHm_Dsp7EzNdyJ7XN8HUZ9Ynqof0WH45aaylgTg",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJhOTJkZWE1NC1hMTViLTRjZWQtYjU5NC01YTEzMTZlNjBmMzAiLCJpYXQiOjE3NjkwODA3ODl9.K1FV7zc4gp4eEmPMp2BVeW-GCHHjCqGM3eKw7urKr4k",
 							"type": "string"
 						}
 					]
@@ -194,7 +201,14 @@
 			"name": "http://localhost:8000/agent/invitations/accept",
 			"request": {
 				"auth": {
-					"type": "noauth"
+					"type": "bearer",
+					"bearer": [
+						{
+							"key": "token",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiIyMWYzNzIxYi1lM2Y4LTRlZDItOGMwMi03YTMwNmVhNWU0YmEiLCJpYXQiOjE3NjkxNTI0MTl9.BWU0MxqM7vHGDroK-A8rj_uf2i1Y7Qh72t-z7GsTsNk",
+							"type": "string"
+						}
+					]
 				},
 				"method": "POST",
 				"header": [
@@ -206,7 +220,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": " { \n     \"invitation_url\": \"http://verifier:8070?oob=eyJAdHlwZSI6ICJodHRwczovL2RpZGNvbW0ub3JnL291dC1vZi1iYW5kLzIuMC9pbnZpdGF0aW9uIiwgIkBpZCI6ICI3ODc5ZjIzYi03NjI5LTQ4YzEtYTU2YS1jMGYzOTAwYzQzMTciLCAibGFiZWwiOiAiZHJ4ICh0ZW5hbnQpIiwgImhhbmRzaGFrZV9wcm90b2NvbHMiOiBbImh0dHBzOi8vZGlkY29tbS5vcmcvZGlkZXhjaGFuZ2UvMS4wIl0sICJhY2NlcHQiOiBbImRpZGNvbW0vdjIiLCAiZGlkY29tbS9haXAyO2Vudj1yZmMxOSJdLCAic2VydmljZXMiOiBbeyJpZCI6ICIjaW5saW5lIiwgInR5cGUiOiAiZGlkLWNvbW11bmljYXRpb24iLCAicmVjaXBpZW50S2V5cyI6IFsiZGlkOmtleTp6Nk1rbTRxd0N6WkNYZ3dwVUptdVFyd2ZidFpERWNUQW1GZzV2M3BoSmI5WVhLWUsjejZNa200cXdDelpDWGd3cFVKbXVRcndmYnRaREVjVEFtRmc1djNwaEpiOVlYS1lLIl0sICJzZXJ2aWNlRW5kcG9pbnQiOiAiaHR0cDovL3ZlcmlmaWVyOjgwNzAifV19\"\n,\n  \"alias\": \"DrX\"\n}",
+					"raw": " { \n    \"invitation_url\": \"http://verifier:8070?oob=eyJAdHlwZSI6ICJodHRwczovL2RpZGNvbW0ub3JnL291dC1vZi1iYW5kLzIuMC9pbnZpdGF0aW9uIiwgIkBpZCI6ICI1ZTNiODkzYi1jNjJjLTQxMWQtOTMxNy0xNTk1ZTc0ZTdlZjQiLCAibGFiZWwiOiAiZHJ4ICh0ZW5hbnQpIiwgImhhbmRzaGFrZV9wcm90b2NvbHMiOiBbImh0dHBzOi8vZGlkY29tbS5vcmcvZGlkZXhjaGFuZ2UvMS4wIl0sICJhY2NlcHQiOiBbImRpZGNvbW0vdjIiLCAiZGlkY29tbS9haXAyO2Vudj1yZmMxOSJdLCAic2VydmljZXMiOiBbeyJpZCI6ICIjaW5saW5lIiwgInR5cGUiOiAiZGlkLWNvbW11bmljYXRpb24iLCAicmVjaXBpZW50S2V5cyI6IFsiZGlkOmtleTp6Nk1rc1pjSmtCanJ4UmV0VGZvbUxBVmJBQUNWRDk0dEozV1lreGlQZ0p4U2ptVmYjejZNa3NaY0prQmpyeFJldFRmb21MQVZiQUFDVkQ5NHRKM1dZa3hpUGdKeFNqbVZmIl0sICJzZXJ2aWNlRW5kcG9pbnQiOiAiaHR0cDovL3ZlcmlmaWVyOjgwNzAifV19\"\n,\n  \"contact_alias\": \"DrX\"\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -240,7 +254,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJmZmJhNTFhNi05ZDVhLTRhNmMtYWFmMi01YTA2ZDA0MjIxODciLCJpYXQiOjE3NjgzMDY3NjV9.UGKIk3hyiuzJ1oIhWn3CmtD7EoneNUdDZIquxWBG_kI",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiIyNDRiNzc4NS0xYzg0LTQ5NmItYjY3ZS1kYjliMzM3YmI0MjMiLCJpYXQiOjE3Njg4OTMwNjF9.EUpYUPsU2Sv0xaNySbdxk6iSDBLWVU66P-8Ki7yJo4I",
 							"type": "string"
 						}
 					]
@@ -249,7 +263,7 @@
 				"header": [
 					{
 						"key": "x-selected-peer",
-						"value": "2",
+						"value": "holder",
 						"type": "text"
 					}
 				],
@@ -330,7 +344,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJkYTkxNThhYy1jOGI0LTRmZTgtODk2MS1hYWM2ZDNiYmEyOTYiLCJpYXQiOjE3NjY0ODUyNTV9.pE5wZsQNGL9wQqJSzAssITwwYwJC_qz8azdj52zQrfA",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJhOTJkZWE1NC1hMTViLTRjZWQtYjU5NC01YTEzMTZlNjBmMzAiLCJpYXQiOjE3NjkwODA3ODl9.K1FV7zc4gp4eEmPMp2BVeW-GCHHjCqGM3eKw7urKr4k",
 							"type": "string"
 						}
 					]
@@ -345,7 +359,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n  \"holder_alias\": \"Alice\",//conection alias\n  \"request_payload\":[\"bloodwork\",\"xrays\",\"somehtingnew\"] \n  }\n",
+					"raw": "{\n  \"holder_alias\": \"Alice\",\n  \"request_label\": \"DrX coasdnsent for claim 123\"\n}\n",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -379,7 +393,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiI0NWEzN2E2YS00N2MwLTRjODUtOTRlMi0xYWFiZmNlYTNjZmIiLCJpYXQiOjE3NjgyODgwNTV9.aCgVIUzBqXH7V_ijPJ7vRZh1sJ4Vjzi3S7_6HvJADUY",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiIzNjFmOTBlZi1kODA4LTRiZDctODYwZS1kNmJjMDZkMDRkOTYiLCJpYXQiOjE3NjY0ODUzMTJ9.CHq4qWVQg6MrizOJ7EojtxM0_gmifY9AND6XDTMktvk",
 							"type": "string"
 						}
 					]
@@ -388,7 +402,7 @@
 				"header": [
 					{
 						"key": "x-selected-peer",
-						"value": "3",
+						"value": "holder",
 						"type": "text"
 					}
 				],
@@ -425,7 +439,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJlNzM3ZDI5Mi1jOGYxLTRlM2EtODM4NS1iZjdmNTU4YzIwNzEiLCJpYXQiOjE3Njc5NzIxODB9.ajHSBHe7tT7xOe8Bk58n2yY400jnGt8ogDW6q8L9EXQ",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiIyMWYzNzIxYi1lM2Y4LTRlZDItOGMwMi03YTMwNmVhNWU0YmEiLCJpYXQiOjE3NjkxNTI0MTl9.BWU0MxqM7vHGDroK-A8rj_uf2i1Y7Qh72t-z7GsTsNk",
 							"type": "string"
 						}
 					]
@@ -440,7 +454,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n  \"issuer_alias\": \"issuer\"\n   //,\"requested_payload\": [\"xrays\", \"bloodwork\",\"somehtingnew\",\"somehtingelse2\",\"somehtingelse3\",\"haw\"]//if omitted auto-filled from cache\n   //,\"pres_ex_id\": \"8b8257...cbed6\"//if ommitted checks mirrorAlias\n  //,\"verifier_alias\": \"Newdoc\", // verifier connection (optional) if ommitted defaults to latest\n // ,\"purposes\": [\"pcode001\"]//if omitted will be pcode001\n  // ,\"operations\": [\"ocode001\"]//if omitted will be ocode001\n  ,\"durationDays\": 1\n  ,\"seed\": \"b64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"\n    //if public key !ONLY EdDSA keys (Ed25519, Ed448) supported! or  is present the seed is ignored\n   //,\"publicKeyPem\": \"-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAl0FnMYrHAmCRMxLb602axPu6X0hLv44JTOPx8mK+5xE=\\n-----END PUBLIC KEY-----\\n\"\n   //if public key exists we could send the consentId we want but it will check if it exists in the blockcain. if we ommite the consetId the holder must take it from the response in the api\n    //,\"consentId\":\"newtest\"\n  \n}\n\n",
+					"raw": "{\n  \"issuer_alias\": \"issuer\"\n   ,\"requested_payload\": {\n  \"@context\": {\n    \"dpv\": \"https://w3id.org/dpv#\",\n    \"dpv-pd\": \"https://w3id.org/dpv/pd#\",\n    \"eu-gdpr\": \"https://w3id.org/dpv/legal/eu/gdpr#\",\n    \"ex\": \"https://consentis-example.com/vocab#\"\n  },\n  \"ConsentRecord\": {\n    \"Header\": {\n      \"Identifier\": \"urn:uuid:baeb73d1-f9eb-4c6d-b0c3-c1ae12810156\",\n      \"ConformsTo\": \"https://example.com/schemas/consent-record-v1.1.json\",\n      \"DataSubject\": \"UUID-NHR-Karavias\"\n    },\n    \"ProcessingInfo\": {\n      \"ConsentNotice\": \"https://consentis-example.com/notices/symptom-checker-nhr\",\n      \"Language\": \"en\",\n      \"Purposes\": [\n        {\n          \"PurposeInfo\": {\n            \"Purpose\": [\n              \"dpv:ImproveHealthcare\",\n              \"ex:ContinuityOfCare\"\n            ],\n            \"PurposeDescription\": \"Collection, transfer, and storage of breast cancer-related symptom data from the Symptom Checker App into the National Healthcare Registry (NHR), enabling authorized healthcare professionals to access the data for continuity of care and medical decision support.\",\n            \"LegalBasis\": [\n              \"eu-gdpr:A6-1-a(Lawfulness of processing)\",\n              \"eu-gdpr:A9-2-a(Processing of special categories of personal data)\"\n            ],\n            \"PersonalData\": [\n              {\n                \"PersonalDataInfo\": {\n                  \"PersonalDataType\": \"dpv-pd:HealthData\",\n\t\t\t\t  \"PersonalDataDescription\": \"Breast cancer surgery\",\n                  \"isSensitive\": true,\n                  \"isSpecialCategory\": true\n                }\n              },\n              {\n                \"PersonalDataInfo\": {\n                  \"PersonalDataType\": \"dpv-pd:HealthData\",\n\t\t\t\t  \"PersonalDataDescription\": \"Malignant neoplasm of breast, unspecified\",\n                  \"isSensitive\": true,\n                  \"isSpecialCategory\": true\n                }\n              }\n            ],\n            \"DataController\": \"nhr-operator\",\n            \"ProcessingMethod\": [\n              \"dpv:Collect\",\n              \"dpv:Transfer\",\n              \"dpv:Store\",\n              \"dpv:Use\",\n              \"dpv:Consult\"\n            ],\n            \"StorageLocation\": [\"nhr:central-database\"],\n            \"RetentionPeriod\": \"P10Y\",\n            \"ProcessingLocation\": \"nhr:central-database\",\n            \"Jurisdiction\": \"eu-gdpr:GDPR\",\n            \"WithdrawalMethod\": \"SSI-User-Wallet(link)\",\n            \"Rights\": [\n              \"eu-gdpr:A7-3(Conditions for consent)\",\n              \"eu-gdpr:A15(Right of access by the data subject)\",\n              \"eu-gdpr:A16(Right to rectification)\",\n              \"eu-gdpr:A17(Right to erasure (‘right to be forgotten’))\",\n              \"eu-gdpr:A18(Right to restriction of processing)\"\n            ],\n            \"Authority\": \"did:example:ndpa\"\n          }\n        }\n      ]\n    },\n    \"Parties\": [\n      {\n        \"Party\": {\n          \"PartyID\": \"did:example:nhr-operator\",\n          \"PartyAddress\": \"123 National Health Ave\",\n          \"PartyEmail\": \"contact@nhr.example.org\",\n          \"PartyURL\": \"https://nhr.example.org\",\n          \"PartyName\": \"National Healthcare Registry Operator\",\n          \"PartyRole\": \"dpv:DataController\",\n          \"PartyContact\": \"+30-210-000-0000\",\n          \"PartyType\": \"dpv:Authority\"\n        }\n      },\n      {\n        \"Party\": {\n          \"PartyID\": \"did:example:symptom-checker\",\n          \"PartyAddress\": \"45 Medical Software St\",\n          \"PartyEmail\": \"support@symptom-checker.example.com\",\n          \"PartyURL\": \"https://symptom-checker.example.com\",\n          \"PartyName\": \"Symptom Checker App Provider\",\n          \"PartyRole\": \"dpv:JointDataController\",\n          \"PartyContact\": \"+30-210-000-1111\",\n          \"PartyType\": \"dpv:Organisation\"\n        }\n      },\n      {\n        \"Party\": {\n          \"PartyID\": \"did:example:consentis-cmp\",\n          \"PartyAddress\": \"12 SSI Innovation Road\",\n          \"PartyEmail\": \"info@consentis.example.org\",\n          \"PartyURL\": \"https://consentis.example.org\",\n          \"PartyName\": \"CONSENTIS CMP\",\n          \"PartyRole\": \"dpv:DataProcessor\",\n          \"PartyContact\": \"+30-210-000-2222\",\n          \"PartyType\": \"dpv:Organisation\"\n        }\n      }\n    ],\n    \"Events\": [\n      {\n        \"Event\": {\n          \"EventTime\": \"2025-02-01T10:15:00Z\",\n          \"ValidityDuration\": \"P10Y\",\n          \"EntityID\": \"did:example:patient-123\",\n          \"EventType\": \"dpv:ExplicitlyExpressedConsent\",\n          \"EventState\": \"dpv:ConsentGiven\"\n        }\n      }\n    ]\n  }\n}\n\n // ,\"purposes\": [\"pcode001\"]//if omitted will be pcode001\n  // ,\"operations\": [\"ocode001\"]//if omitted will be ocode001\n  ,\"durationDays\": 1\n  ,\"seed\": \"b64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"\n    //if public key !ONLY EdDSA keys (Ed25519, Ed448) supported! or  is present the seed is ignored\n   //,\"publicKeyPem\": \"-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAl0FnMYrHAmCRMxLb602axPu6X0hLv44JTOPx8mK+5xE=\\n-----END PUBLIC KEY-----\\n\"\n   //if public key exists we could send the consentId we want but it will check if it exists in the blockcain. if we ommite the consetId the holder must take it from the response in the api\n    //,\"consentId\":\"newtest\"\n  \n}\n\n",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -474,7 +488,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiIxYjI1MWVjOS0xODAxLTQ2NDAtYmI0MC1kZDgwYjg1ZGZlYTMiLCJpYXQiOjE3NjYzOTU4NjB9.tpEiB8y6HrDGTSgtnAmg-RtMusVewF3CyNBb0mP5Aqo",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiIyMWYzNzIxYi1lM2Y4LTRlZDItOGMwMi03YTMwNmVhNWU0YmEiLCJpYXQiOjE3NjkxNjMyNTl9.Uanxd7Y5DFAdfPwqisjiC18_TGQ3bQTgsQgsEcedKno",
 							"type": "string"
 						}
 					]
@@ -483,7 +497,7 @@
 				"header": [
 					{
 						"key": "x-selected-peer",
-						"value": "3",
+						"value": "holder",
 						"type": "text"
 					}
 				],
@@ -520,7 +534,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJlNzM3ZDI5Mi1jOGYxLTRlM2EtODM4NS1iZjdmNTU4YzIwNzEiLCJpYXQiOjE3Njc5NzIxODB9.ajHSBHe7tT7xOe8Bk58n2yY400jnGt8ogDW6q8L9EXQ",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiIyMWYzNzIxYi1lM2Y4LTRlZDItOGMwMi03YTMwNmVhNWU0YmEiLCJpYXQiOjE3NjkxNTI0MTl9.BWU0MxqM7vHGDroK-A8rj_uf2i1Y7Qh72t-z7GsTsNk",
 							"type": "string"
 						}
 					]
@@ -621,7 +635,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiI1N2U0NjE1OC0xYWRlLTRlMzctYWE3Mi1lMTRjNzU3ZTFlZWMiLCJpYXQiOjE3NjM2NDUwMjF9.RIOEmAi1hBmDoLlUNCs4fkiPA_2Lh_OBRvukuZ5KvMk",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJhOTJkZWE1NC1hMTViLTRjZWQtYjU5NC01YTEzMTZlNjBmMzAiLCJpYXQiOjE3NjkwODA3ODl9.K1FV7zc4gp4eEmPMp2BVeW-GCHHjCqGM3eKw7urKr4k",
 							"type": "string"
 						}
 					]
@@ -636,7 +650,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n  \"consentId\": \"c_3cbbf582ea075713f300e6a07297fd1d097a6063\",\n  \"purpose\": \"pcode001\",\n  \"operation\": \"ocode001\"\n}\n",
+					"raw": "{\n  \"consentId\": \"c_86d8d8cba05fb4231e5a8377482fe37041ad4116\",\n  \"purpose\": \"pcode001\",\n  \"operation\": \"ocode001\"\n}\n",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -667,7 +681,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiIzYWFiMDdjYy1mN2UxLTQ0NzEtYmFkZS1kYjg2ZDczNzNhODEiLCJpYXQiOjE3NjM3MjA2ODF9.r01UFAWcDpY578-PMocnPVwF8UBQn5VIhbDj7Fb0vl8",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJlYmNjOTdhZi0wYzg3LTQyOWItYjY0NC01MzJhY2NmNWFkOTAiLCJpYXQiOjE3Njg4OTMwMDl9.kzeMlHaOse_6YyESmiBh-jVGZBXSoJE5UnAn9qJ_vbY",
 							"type": "string"
 						}
 					]
@@ -682,7 +696,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "// Local signing via seed\n{\n  \"consentId\": \"c_2910843b1459c315e322cb39432ff01e4fee9801\",\n  \"seed\": \"b64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"\n}\n\n//or Externally-signed (no local seed/private key used)\n// {\n//   \"consentId\": \"outsidesig\",\n//   \"publicKeyPem\": \"-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAVaciqTAXm9w7PW8fHToUrFGMo+z406uX2NH6cuEDHkI=\\n-----END PUBLIC KEY-----\\n\",\n//   \"signature\": \"Ejr8L8wz0RLEpsegvXGeokbDR38rjqHZmI6xf+xWc2vj4f2yOczw+1mK+aUJ1LoTfl5CW7Z9Nt0V40L/ejEoDQ==\"\n// }\n\n\n//or Local signing via private key\n// {\n//   \"consentId\": \"c_abc123...\",\n//   \"privateKeyPem\": \"-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n\"\n// }\n\n\n",
+					"raw": "// Local signing via seed\n{\n  \"consentId\": \"c_fc324dd7fb2306ae163bc04920fcf22bc46b4d92\",\n  \"seed\": \"b64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"\n}\n\n//or Externally-signed (no local seed/private key used)\n// {\n//   \"consentId\": \"outsidesig\",\n//   \"publicKeyPem\": \"-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAVaciqTAXm9w7PW8fHToUrFGMo+z406uX2NH6cuEDHkI=\\n-----END PUBLIC KEY-----\\n\",\n//   \"signature\": \"Ejr8L8wz0RLEpsegvXGeokbDR38rjqHZmI6xf+xWc2vj4f2yOczw+1mK+aUJ1LoTfl5CW7Z9Nt0V40L/ejEoDQ==\"\n// }\n\n\n//or Local signing via private key\n// {\n//   \"consentId\": \"c_abc123...\",\n//   \"privateKeyPem\": \"-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n\"\n// }\n\n\n",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -690,13 +704,10 @@
 					}
 				},
 				"url": {
-					"raw": "http://10.1.6.251:8000/agent/proofs/revoke",
+					"raw": "http://localhost:8000/agent/proofs/revoke",
 					"protocol": "http",
 					"host": [
-						"10",
-						"1",
-						"6",
-						"251"
+						"localhost"
 					],
 					"port": "8000",
 					"path": [
@@ -807,7 +818,7 @@
 				"header": [
 					{
 						"key": "x-selected-peer",
-						"value": "2",
+						"value": "holder",
 						"type": "text"
 					}
 				],
