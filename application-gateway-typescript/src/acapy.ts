@@ -99,6 +99,35 @@ export async function ensureDidKey(
     } catch { /* ignore */ }
   }
 
+  // If we want a non-public DID and not forcing new, reuse the latest did:key
+  if (!setPublic && !forceNew) {
+    try {
+      const { data } = await c.get('/wallet/did');
+      const results: WalletDidRecord[] = Array.isArray(data?.results) ? data.results : [];
+      const keyTypeLower = String(keyType).toLowerCase();
+
+      const candidates = results.filter((r) => {
+        const did = String(r?.did || '');
+        const rKeyType = String(r?.key_type || '').toLowerCase();
+        const method = String(r?.method || '').toLowerCase();
+        return did.startsWith('did:key:') && rKeyType === keyTypeLower && (method === '' || method === 'key');
+      });
+
+      if (candidates.length) {
+        const withTime = candidates.some((r) => r?.updated_at || r?.created_at);
+        if (withTime) {
+          candidates.sort((a, b) => {
+            const ta = Date.parse(String(a.updated_at || a.created_at || '')) || 0;
+            const tb = Date.parse(String(b.updated_at || b.created_at || '')) || 0;
+            return ta - tb;
+          });
+        }
+        const latest = candidates[candidates.length - 1];
+        if (latest?.did) return { did: latest.did, verkey: latest.verkey };
+      }
+    } catch { /* ignore */ }
+  }
+
   // Create did:key
   const { data: created } = await c.post('/wallet/did/create', {
     method: 'key',
@@ -436,12 +465,13 @@ export async function getW3cCredential(req: any, peer: PeerId, id: string) {
 
 
 // ---- Verifier: request presentation (DIF PE) ----
-export async function requestPresentation(req: any, peer: PeerId, connection_id: string, presDef: any, opts?: { challenge?: string; domain?: string; auto_verify?: boolean }) {
+export async function requestPresentation(req: any, peer: PeerId, connection_id: string, presDef: any, opts?: { challenge?: string; domain?: string; auto_verify?: boolean; comment?: string }) {
   const c = clientForReq(req, peer);
   const payload = {
     auto_remove: false,
     auto_verify: opts?.auto_verify ?? true,
     connection_id,
+    comment: opts?.comment,
     presentation_request: {
       dif: {
         options: { challenge: opts?.challenge || cryptoRand(), domain: opts?.domain || 'example.org' },
@@ -496,6 +526,4 @@ export async function sendPresentation(
   );
   return data;
 }
-
-
 
