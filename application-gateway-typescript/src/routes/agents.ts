@@ -1281,6 +1281,8 @@ router.post('/proofs/request', async (req: any, res, next) => {
     const {
       holder_alias,
       request_payload,                      // optional array of strings
+      requested_payload,                   // optional JSON payload to pass through
+      requested_payload_raw,               // optional raw string payload to pass through
       request_label,                        // optional human-readable label
       name,
       presentation_definition,
@@ -1294,6 +1296,12 @@ router.post('/proofs/request', async (req: any, res, next) => {
     if (Array.isArray(request_payload) && !request_payload.every((s: any) => typeof s === 'string' && s.trim())) {
       return res.status(400).json({ error: 'request_payload items must be non-empty strings' });
     }
+    if (requested_payload != null && typeof requested_payload !== 'object') {
+      return res.status(400).json({ error: 'requested_payload must be JSON (object/array)' });
+    }
+    if (requested_payload_raw != null && typeof requested_payload_raw !== 'string') {
+      return res.status(400).json({ error: 'requested_payload_raw must be a string' });
+    }
 
     const requestLabel =
       typeof request_label === 'string' && request_label.trim()
@@ -1306,6 +1314,9 @@ router.post('/proofs/request', async (req: any, res, next) => {
     const effectiveName = name || defaultName;
     const presDef = buildItemsPD(presentation_definition, effectiveName, wanted);
 
+    if (requested_payload !== undefined) presDef.requested_payload = requested_payload;
+    if (requested_payload_raw !== undefined) presDef.requested_payload_raw = requested_payload_raw;
+
     const out = await requestPresentation(req, peer, connection_id, presDef, {
       ...(options || {}),
       comment: requestLabel ?? options?.comment
@@ -1316,6 +1327,8 @@ router.post('/proofs/request', async (req: any, res, next) => {
       requested: true,
       request_label: requestLabel ?? null,
       wantedItems: wanted,
+      requested_payload: requested_payload ?? null,
+      requested_payload_raw: requested_payload_raw ?? null,
       result: out
     });
   } catch (e) { next(e); }
@@ -1480,6 +1493,16 @@ router.get('/proofs/inbox', async (req: any, res, next) => {
         || r?.pres_request?.dif?.presentation_definition?.input_descriptors
         || r?.presentation_request_dict?.dif?.presentation_definition?.input_descriptors
         || [];
+      const requested_payload =
+        r?.by_format?.pres_request?.dif?.presentation_definition?.requested_payload
+        || r?.pres_request?.dif?.presentation_definition?.requested_payload
+        || r?.presentation_request_dict?.dif?.presentation_definition?.requested_payload
+        || null;
+      const requested_payload_raw =
+        r?.by_format?.pres_request?.dif?.presentation_definition?.requested_payload_raw
+        || r?.pres_request?.dif?.presentation_definition?.requested_payload_raw
+        || r?.presentation_request_dict?.dif?.presentation_definition?.requested_payload_raw
+        || null;
       const request_label =
         r?.comment
         || r?.presentation_request?.dif?.presentation_definition?.name
@@ -1509,6 +1532,8 @@ router.get('/proofs/inbox', async (req: any, res, next) => {
         my_role: r.role,
         request_label,
         requested,
+        requested_payload,
+        requested_payload_raw,
         suggested_record_ids: suggested,
         challenge,
         domain,
@@ -2683,6 +2708,16 @@ router.get('/proofs/records', async (req: any, res, next) => {
         let consentId: string | null = extractConsentIdAny(r);
         let requested_payload: Record<string, any> | null = extractRequestedPayloadAny(r);
         let requested_payload_raw: string | null = extractRequestedPayloadRawAny(r);
+        let requested_payload_request: any =
+          r?.by_format?.pres_request?.dif?.presentation_definition?.requested_payload
+          ?? r?.pres_request?.dif?.presentation_definition?.requested_payload
+          ?? r?.presentation_request_dict?.dif?.presentation_definition?.requested_payload
+          ?? null;
+        let requested_payload_raw_request: string | null =
+          r?.by_format?.pres_request?.dif?.presentation_definition?.requested_payload_raw
+          ?? r?.pres_request?.dif?.presentation_definition?.requested_payload_raw
+          ?? r?.presentation_request_dict?.dif?.presentation_definition?.requested_payload_raw
+          ?? null;
         let abandoned_reason: string | null = null;
 
         // Try to read requested/challenge/domain directly from list record
@@ -2712,7 +2747,9 @@ router.get('/proofs/records', async (req: any, res, next) => {
           !requested?.length ||
           !challenge ||
           !domain ||
-          (hasPresentation && (!requested_payload || !requested_payload_raw));
+          (hasPresentation && (!requested_payload || !requested_payload_raw)) ||
+          requested_payload_request == null ||
+          requested_payload_raw_request == null;
 
         if (needFull) {
           try {
@@ -2728,6 +2765,20 @@ router.get('/proofs/records', async (req: any, res, next) => {
             }
             if (!requested_payload_raw) {
               requested_payload_raw = extractRequestedPayloadRawAny(rec);
+            }
+            if (requested_payload_request == null) {
+              requested_payload_request =
+                rec?.by_format?.pres_request?.dif?.presentation_definition?.requested_payload
+                ?? rec?.pres_request?.dif?.presentation_definition?.requested_payload
+                ?? rec?.presentation_request_dict?.dif?.presentation_definition?.requested_payload
+                ?? null;
+            }
+            if (requested_payload_raw_request == null) {
+              requested_payload_raw_request =
+                rec?.by_format?.pres_request?.dif?.presentation_definition?.requested_payload_raw
+                ?? rec?.pres_request?.dif?.presentation_definition?.requested_payload_raw
+                ?? rec?.presentation_request_dict?.dif?.presentation_definition?.requested_payload_raw
+                ?? null;
             }
             if (r?.state === 'abandoned') {
               const pr = extractProblemReportAny(rec);
@@ -2772,6 +2823,8 @@ router.get('/proofs/records', async (req: any, res, next) => {
           consentId,
           requested_payload,
           requested_payload_raw,
+          requested_payload_request,
+          requested_payload_raw_request,
           abandoned_reason,
           requested,
           challenge,
