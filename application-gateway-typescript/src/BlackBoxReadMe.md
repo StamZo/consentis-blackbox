@@ -282,7 +282,7 @@ Body:
 ```
 
 Notes:
-- `request_payload` is optional. If omitted, the proof request still asks for `credentialSubject.consentId`.
+- `request_payload` is optional but its where the verifier loads the requested data aka the requested consent items. If omitted, the proof request still asks for `credentialSubject.consentId`.
 - By default the proof request also asks for `credentialSubject.requested_payload` so the verifier receives the full consent JSON.
 - If `request_payload` is provided, the proof request also requires those keys via `consentedItems[*]`.
 - `limit_disclosure` defaults to **`preferred`** so the holder can return the **full VC** (BbsBlsSignature2020).
