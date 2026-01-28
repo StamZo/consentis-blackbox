@@ -231,6 +231,7 @@ Authorization: Bearer <tenant_jwt>
 
 Use aliases (e.g. `"John"`, `"DrX"`, `"Consentis"`) in later calls.
 
+
 ### 4.4 Delete connections
 
 ```http
@@ -275,7 +276,8 @@ Body:
 ```json
 {
   "holder_alias": "John",
-  "request_label": "DrX consent for claim 123"
+  "request_label": "DrX consent for claim 123",
+   "requested_payload": { "labs": true, "imaging": true }
 }
 ```
 
