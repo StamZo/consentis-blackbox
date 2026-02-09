@@ -12,7 +12,7 @@ The API wraps all ACA-Py and Fabric calls behind higher-level endpoints:
 - DID bootstrap (issuer anchoring on Fabric)
 - Connection setup (Issuer–Holder, Holder–Verifier)
 - Consent request (proof request) from Verifier
-- Consent issuance (VC) by Holder
+- Consent issuance (VC) initiated by Holder (issued by Issuer)
 - Consent presentation / denial
 - On-chain consent verification
 - Consent revocation (seed / external signature / private key)
@@ -103,7 +103,7 @@ Repeat the same call with `x-selected-peer: Verifier` to create verifier tenants
 POST /agent/did/bootstrap
 x-selected-peer: issuer         
 // or holder / verifier depending who creates the invitation
-Authorization: Bearer <tenant_jwt>   // for issuer and all tenants
+Authorization: Bearer <tenant_jwt>   // holder/verifier tenants only (issuer is single-tenant)
 Content-Type: application/json
 ```
 Body:
@@ -128,7 +128,7 @@ Behavior:
 
 We need:
 
-- **Issuer ↔ Issuer** connection
+- **Holder ↔ Issuer** connection
 - **Holder ↔ Verifier** connection
 
 Holder ↔ Issuer now uses the public DID connect endpoint (holder side):
@@ -144,7 +144,7 @@ All fields are optional; defaults are used if omitted:
 
 ```json
 {
-  // "issuer_alias": "issuer",
+   "issuer_alias": "issuer", // alias for the holder's connection to the issuer (default: "issuer")
   // "their_public_did": "did:fabric:issuer",
   // "protocol": "didexchange/1.1",
   // "service_accept": ["didcomm/v2","didcomm/aip2;env=rfc19"],
@@ -229,7 +229,7 @@ x-selected-peer: holder / verifier depending
 Authorization: Bearer <tenant_jwt>
 ```
 
-Use aliases (e.g. `"John"`, `"DrX"`, `"Consentis"`) in later calls.
+Use aliases (e.g. `"John"`, `"DrX"`, `"issuer"`) in later calls.
 
 
 ### 4.4 Delete connections
@@ -247,11 +247,11 @@ DELETE /agent/connections?id=<uuid>
 ```
 
 ```http
-DELETE /agent/connections?ontact_alias=DrX
+DELETE /agent/connections?contact_alias=DrX
 ```
 
 ```http
-DELETE /agent/connections?ontact_alias=DrX&state=active
+DELETE /agent/connections?contact_alias=DrX&state=active
 ```
 
 ```http
@@ -282,9 +282,10 @@ Body:
 ```
 
 Notes:
-- `request_payload` is optional but its where the verifier loads the requested data aka the requested consent items. If omitted, the proof request still asks for `credentialSubject.consentId`.
-- By default the proof request also asks for `credentialSubject.requested_payload` so the verifier receives the full consent JSON.
-- If `request_payload` is provided, the proof request also requires those keys via `consentedItems[*]`.
+- `requested_payload` (optional) is an arbitrary JSON object passed through for UI/context; it is surfaced back to the holder via `/agent/proofs/inbox` as `requested_payload`.
+- `request_payload` (optional) is an **array of strings** listing the requested consented item keys. If omitted, the proof request still asks for `credentialSubject.consentId`.
+- By default the proof request also asks for `credentialSubject.requested_payload` and `credentialSubject.requested_payload_raw` so the verifier can receive the full consent JSON.
+- If `request_payload` is provided, the proof request also requires those keys via `consentedItems[*]` constraints.
 - `limit_disclosure` defaults to **`preferred`** so the holder can return the **full VC** (BbsBlsSignature2020).
   - If you force `limit_disclosure: "required"` you may hit JSON-LD/BBS derived-proof failures unless the VC top-level `@context` includes the needed vocabularies or the payload uses full IRIs.
 
@@ -342,7 +343,7 @@ Use the `pres_ex_id` and/or verifier_alias/connection in the next step if you wa
 
 ## 7. Holder creates the Consent VC
 
-The holder now **issues a consent VC** that will later be presented as proof.
+The holder now **proposes** a consent VC that will later be issued by the issuer (often automatically), and then presented as proof.
 
 ```http
 POST /agent/credentials/propose
@@ -355,7 +356,7 @@ Minimal example:
 
 ```json
 {
-  "issuer_alias": "Consentis",
+  "issuer_alias": "issuer",
   "requested_payload": {
     "consent": "grant",
     "scope": { "labs": true }
@@ -365,11 +366,13 @@ Minimal example:
 }
 ```
 
+Note: `issuer_alias` must match the **connection alias** you created on the holder side (e.g., `"issuer"` by default, or `"consentis"` if you used that in `/agent/connect-to-issuer`).
+
 ConsentRecord example (JSON-LD terms embedded under `requested_payload`):
 
 ```json
 {
-  "issuer_alias": "Consentis",
+  "issuer_alias": "issuer",
   "requested_payload": {
     "@context": {
       "dpv": "https://w3id.org/dpv#",
@@ -395,7 +398,7 @@ Supported fields:
 
 ```json
 {
-  "issuer_alias": "Consentis",
+  "issuer_alias": "issuer",
 
   // Consent scope
   "requested_payload": {
@@ -403,8 +406,10 @@ Supported fields:
     "scope": { "labs": true },
     "notes": "ok"
   },
-  "purposes": ["code001"],
-  "operations": ["code001"],
+  "purposes": ["pcode001"],
+  "operations": ["ocode001"],
+  // Optional: contract descriptor / Finder metadata (controlled vocabulary)
+  // "datasetIds": ["health:phr", "health:imaging"],
 
   // Validity
   "durationDays": 1,
@@ -590,8 +595,8 @@ Content-Type: application/json
 ```json
 {
   "consentId": "c_b69eeaba753e92d60e1ff495e58dc63bc8a1d545",
-  "purpose": "code001",
-  "operation": "code001"
+  "purpose": "pcode001",
+  "operation": "ocode001"
 }
 ```
 
@@ -656,18 +661,6 @@ MCowBQYDK2VwAyEAVaciqTAXm9w7PW8fHToUrFGMo+z406uX2NH6cuEDHkI=
 - API loads the private key, signs the revocation and records it.
 
 After revocation, `POST /agent/proofs/verify` for that `consentId` should indicate that the consent is no longer valid.
-### 11.3 Local signing via private key PEM
-
-```json
-{
-  "consentId": "c_abc123...",
-  "privateKeyPem": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-}
-```
-
-- API loads the private key, signs the revocation and records it.
-
-After revocation, `POST /agent/proofs/verify` for that `consentId` should indicate that the consent is no longer valid.
 
 ---
 
@@ -679,6 +672,10 @@ When you use the **externally signed** mode of `/agent/proofs/revoke`, the signa
 - the **VC creation timestamp** used when the consent anchor was created
 
 If you sign completely outside the platform (e.g. hardware wallet, custom signer), you must ensure the signature is produced over this exact pair (asset id + creation timestamp). Otherwise the platform will reject the signature.
+
+In the current prototype, the exact message string is:
+
+- `${assetId}|${timestamp}`
 
 To make this easier to understand and test, the API exposes a helper endpoint that performs the signing given a private key PEM:
 
