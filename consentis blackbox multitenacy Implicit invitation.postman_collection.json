@@ -2,6 +2,10 @@
 	"info": {
 		"_postman_id": "9a50a01c-80d9-4d9a-b5cf-0e11cc21e2f6",
 		"name": "consentis blackbox multitenacy Implicit invitation",
+		{
+	"info": {
+		"_postman_id": "2fd153a9-817b-4111-a226-21d3fcb075ae",
+		"name": "consentis blackbox finder",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
 		"_exporter_id": "23792500"
 	},
@@ -27,7 +31,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{ \n    \"wallet_name\": \"alice_wallet\",\n    \"wallet_key\": \"alice_key\",\n    \"label\": \"alice (tenant)\"\n   // ,\"new_token\": true //if we want a new token\n}",
+					"raw": "{ \n    \"wallet_name\": \"alice_wallet\",\n    \"wallet_key\": \"alice_key\",\n    \"label\": \"alice (tenant)\"\n    , \"new_token\": true //if we want a new token\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -58,7 +62,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiI0N2EyZjcxYi1jNzA2LTRkMTAtODY1NC1mODdjM2ZkYmU1MjUiLCJpYXQiOjE3Njg5OTMyMTV9.-OpUjt40G-jej2O1JquhFL358uHFpJqbctF0Vzdblzs",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiIyZmI3ODJiZi00NDIyLTQ4NzctOWEwZi1iZTMxNzQ4MzExOGMiLCJpYXQiOjE3NzA2MzUyMTh9.K8HnfJ_Ef7dqy2NWCUbI43_5v7y2Yu160T8dZxm3RBw",
 							"type": "string"
 						}
 					]
@@ -104,7 +108,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJmZmJhNTFhNi05ZDVhLTRhNmMtYWFmMi01YTA2ZDA0MjIxODciLCJpYXQiOjE3NjgzMDY3NjV9.UGKIk3hyiuzJ1oIhWn3CmtD7EoneNUdDZIquxWBG_kI",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJiOTFmNTk0YS03ZTQ2LTRlZjQtYmYwNS0zN2I3YTg5MGU0NzEiLCJpYXQiOjE3NzA2Mzg3NjV9.57LdU_Is0uksl1ZEM1RXIlVZ2wWwiR1bAbkH5Kbc9pk",
 							"type": "string"
 						}
 					]
@@ -124,7 +128,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n \"issuer_alias\": \"issuer\"\n  ,\"their_public_did\": \"did:fabric:issuer\",\n  \"protocol\": \"didexchange/1.1\",\n  \"service_accept\": [\"didcomm/v2\",\"didcomm/aip2;env=rfc19\"],\n  \"auto_accept\": true\n}",
+					"raw": "{\n \"issuer_alias\": \"issuer\"\n//   ,\"their_public_did\": \"did:fabric:issuer\",\n//   \"protocol\": \"didexchange/1.1\",\n//   \"service_accept\": [\"didcomm/v2\",\"didcomm/aip2;env=rfc19\"],\n//   \"auto_accept\": true\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -154,7 +158,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJhOTJkZWE1NC1hMTViLTRjZWQtYjU5NC01YTEzMTZlNjBmMzAiLCJpYXQiOjE3NjkwODA3ODl9.K1FV7zc4gp4eEmPMp2BVeW-GCHHjCqGM3eKw7urKr4k",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiI0ZWUxNjk4ZC04OWIxLTQzMDEtYmIxOS01NjMxNjUzNzM4NzkiLCJpYXQiOjE3NzA2Mzg3MTZ9.fH4zkKKpOFy7z0KIALx1HVNV3AOGHE5DOc_MRmFC8EU",
 							"type": "string"
 						}
 					]
@@ -205,7 +209,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiIyMWYzNzIxYi1lM2Y4LTRlZDItOGMwMi03YTMwNmVhNWU0YmEiLCJpYXQiOjE3NjkxNTI0MTl9.BWU0MxqM7vHGDroK-A8rj_uf2i1Y7Qh72t-z7GsTsNk",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJiOTFmNTk0YS03ZTQ2LTRlZjQtYmYwNS0zN2I3YTg5MGU0NzEiLCJpYXQiOjE3NzA2Mzg3NjV9.57LdU_Is0uksl1ZEM1RXIlVZ2wWwiR1bAbkH5Kbc9pk",
 							"type": "string"
 						}
 					]
@@ -220,7 +224,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": " { \n    \"invitation_url\": \"http://verifier:8070?oob=eyJAdHlwZSI6ICJodHRwczovL2RpZGNvbW0ub3JnL291dC1vZi1iYW5kLzIuMC9pbnZpdGF0aW9uIiwgIkBpZCI6ICI1ZTNiODkzYi1jNjJjLTQxMWQtOTMxNy0xNTk1ZTc0ZTdlZjQiLCAibGFiZWwiOiAiZHJ4ICh0ZW5hbnQpIiwgImhhbmRzaGFrZV9wcm90b2NvbHMiOiBbImh0dHBzOi8vZGlkY29tbS5vcmcvZGlkZXhjaGFuZ2UvMS4wIl0sICJhY2NlcHQiOiBbImRpZGNvbW0vdjIiLCAiZGlkY29tbS9haXAyO2Vudj1yZmMxOSJdLCAic2VydmljZXMiOiBbeyJpZCI6ICIjaW5saW5lIiwgInR5cGUiOiAiZGlkLWNvbW11bmljYXRpb24iLCAicmVjaXBpZW50S2V5cyI6IFsiZGlkOmtleTp6Nk1rc1pjSmtCanJ4UmV0VGZvbUxBVmJBQUNWRDk0dEozV1lreGlQZ0p4U2ptVmYjejZNa3NaY0prQmpyeFJldFRmb21MQVZiQUFDVkQ5NHRKM1dZa3hpUGdKeFNqbVZmIl0sICJzZXJ2aWNlRW5kcG9pbnQiOiAiaHR0cDovL3ZlcmlmaWVyOjgwNzAifV19\"\n,\n  \"contact_alias\": \"DrX\"\n}",
+					"raw": " { \n    \"invitation_url\": \"http://verifier:8070?oob=eyJAdHlwZSI6ICJodHRwczovL2RpZGNvbW0ub3JnL291dC1vZi1iYW5kLzIuMC9pbnZpdGF0aW9uIiwgIkBpZCI6ICIxZGZiOTY0MS0yNjFmLTQzMTEtYjI4Yy0zYTMxNTQ5NmJiODMiLCAibGFiZWwiOiAiZHIgKHRlbmFudCkiLCAiaGFuZHNoYWtlX3Byb3RvY29scyI6IFsiaHR0cHM6Ly9kaWRjb21tLm9yZy9kaWRleGNoYW5nZS8xLjAiXSwgImFjY2VwdCI6IFsiZGlkY29tbS92MiIsICJkaWRjb21tL2FpcDI7ZW52PXJmYzE5Il0sICJzZXJ2aWNlcyI6IFt7ImlkIjogIiNpbmxpbmUiLCAidHlwZSI6ICJkaWQtY29tbXVuaWNhdGlvbiIsICJyZWNpcGllbnRLZXlzIjogWyJkaWQ6a2V5Ono2TWtodXZRUlhSbmlIeWlCelllejRYWkt3OVpvc1huTVBHY0Z1YWZNMlZzdXBLYSN6Nk1raHV2UVJYUm5pSHlpQnpZZXo0WFpLdzlab3NYbk1QR2NGdWFmTTJWc3VwS2EiXSwgInNlcnZpY2VFbmRwb2ludCI6ICJodHRwOi8vdmVyaWZpZXI6ODA3MCJ9XX0\"\n,\n  \"contact_alias\": \"DrX\"\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -254,7 +258,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiIyNDRiNzc4NS0xYzg0LTQ5NmItYjY3ZS1kYjliMzM3YmI0MjMiLCJpYXQiOjE3Njg4OTMwNjF9.EUpYUPsU2Sv0xaNySbdxk6iSDBLWVU66P-8Ki7yJo4I",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJiOTFmNTk0YS03ZTQ2LTRlZjQtYmYwNS0zN2I3YTg5MGU0NzEiLCJpYXQiOjE3NzA2Mzg3NjV9.57LdU_Is0uksl1ZEM1RXIlVZ2wWwiR1bAbkH5Kbc9pk",
 							"type": "string"
 						}
 					]
@@ -344,7 +348,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJhOTJkZWE1NC1hMTViLTRjZWQtYjU5NC01YTEzMTZlNjBmMzAiLCJpYXQiOjE3NjkwODA3ODl9.K1FV7zc4gp4eEmPMp2BVeW-GCHHjCqGM3eKw7urKr4k",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiI0ZWUxNjk4ZC04OWIxLTQzMDEtYmIxOS01NjMxNjUzNzM4NzkiLCJpYXQiOjE3NzA2Mzg3MTZ9.fH4zkKKpOFy7z0KIALx1HVNV3AOGHE5DOc_MRmFC8EU",
 							"type": "string"
 						}
 					]
@@ -359,7 +363,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n  \"holder_alias\": \"Alice\",\n  \"request_label\": \"DrX coasdnsent for claim 123\"\n}\n",
+					"raw": "{\n  \"holder_alias\": \"Alice\",\n  \"request_label\": \"DrX coasdnsent for claim 123\",\n \n \"requested_payload\":{\"@context\": {\n    \"dpv\": \"https://w3id.org/dpv#\",\n    \"dpv-pd\": \"https://w3id.org/dpv/pd#\",\n    \"eu-gdpr\": \"https://w3id.org/dpv/legal/eu/gdpr#\",\n    \"ex\": \"https://consentis-example.com/vocab#\"\n  },\n  \"ConsentRecord\": {\n    \"Header\": {\n      \"Identifier\": \"urn:uuid:baeb73d1-f9eb-4c6d-b0c3-c1ae12810156\",\n      \"ConformsTo\": \"https://example.com/schemas/consent-record-v1.1.json\",\n      \"DataSubject\": \"UUID-NHR-Karavias\"\n    },\n    \"ProcessingInfo\": {\n      \"ConsentNotice\": \"https://consentis-example.com/notices/symptom-checker-nhr\",\n      \"Language\": \"en\",\n      \"Purposes\": [\n        {\n          \"PurposeInfo\": {\n            \"Purpose\": [\n              \"dpv:ImproveHealthcare\",\n              \"ex:ContinuityOfCare\"\n            ],\n            \"PurposeDescription\": \"Collection, transfer, and storage of breast cancer-related symptom data from the Symptom Checker App into the National Healthcare Registry (NHR), enabling authorized healthcare professionals to access the data for continuity of care and medical decision support.\",\n            \"LegalBasis\": [\n              \"eu-gdpr:A6-1-a(Lawfulness of processing)\",\n              \"eu-gdpr:A9-2-a(Processing of special categories of personal data)\"\n            ],\n            \"PersonalData\": [\n              {\n                \"PersonalDataInfo\": {\n                  \"PersonalDataType\": \"dpv-pd:HealthData\",\n\t\t\t\t  \"PersonalDataDescription\": \"Breast cancer surgery\",\n                  \"isSensitive\": true,\n                  \"isSpecialCategory\": true\n                }\n              },\n              {\n                \"PersonalDataInfo\": {\n                  \"PersonalDataType\": \"dpv-pd:HealthData\",\n\t\t\t\t  \"PersonalDataDescription\": \"Malignant neoplasm of breast, unspecified\",\n                  \"isSensitive\": true,\n                  \"isSpecialCategory\": true\n                }\n              }\n            ],\n            \"DataController\": \"nhr-operator\",\n            \"ProcessingMethod\": [\n              \"dpv:Collect\",\n              \"dpv:Transfer\",\n              \"dpv:Store\",\n              \"dpv:Use\",\n              \"dpv:Consult\"\n            ],\n            \"StorageLocation\": [\"nhr:central-database\"],\n            \"RetentionPeriod\": \"P10Y\",\n            \"ProcessingLocation\": \"nhr:central-database\",\n            \"Jurisdiction\": \"eu-gdpr:GDPR\",\n            \"WithdrawalMethod\": \"SSI-User-Wallet(link)\",\n            \"Rights\": [\n              \"eu-gdpr:A7-3(Conditions for consent)\",\n              \"eu-gdpr:A15(Right of access by the data subject)\",\n              \"eu-gdpr:A16(Right to rectification)\",\n              \"eu-gdpr:A17(Right to erasure (‘right to be forgotten’))\",\n              \"eu-gdpr:A18(Right to restriction of processing)\"\n            ],\n            \"Authority\": \"did:example:ndpa\"\n          }\n        }\n      ]\n    },\n    \"Parties\": [\n      {\n        \"Party\": {\n          \"PartyID\": \"did:example:nhr-operator\",\n          \"PartyAddress\": \"123 National Health Ave\",\n          \"PartyEmail\": \"contact@nhr.example.org\",\n          \"PartyURL\": \"https://nhr.example.org\",\n          \"PartyName\": \"National Healthcare Registry Operator\",\n          \"PartyRole\": \"dpv:DataController\",\n          \"PartyContact\": \"+30-210-000-0000\",\n          \"PartyType\": \"dpv:Authority\"\n        }\n      },\n      {\n        \"Party\": {\n          \"PartyID\": \"did:example:symptom-checker\",\n          \"PartyAddress\": \"45 Medical Software St\",\n          \"PartyEmail\": \"support@symptom-checker.example.com\",\n          \"PartyURL\": \"https://symptom-checker.example.com\",\n          \"PartyName\": \"Symptom Checker App Provider\",\n          \"PartyRole\": \"dpv:JointDataController\",\n          \"PartyContact\": \"+30-210-000-1111\",\n          \"PartyType\": \"dpv:Organisation\"\n        }\n      },\n      {\n        \"Party\": {\n          \"PartyID\": \"did:example:consentis-cmp\",\n          \"PartyAddress\": \"12 SSI Innovation Road\",\n          \"PartyEmail\": \"info@consentis.example.org\",\n          \"PartyURL\": \"https://consentis.example.org\",\n          \"PartyName\": \"CONSENTIS CMP\",\n          \"PartyRole\": \"dpv:DataProcessor\",\n          \"PartyContact\": \"+30-210-000-2222\",\n          \"PartyType\": \"dpv:Organisation\"\n        }\n      }\n    ],\n    \"Events\": [\n      {\n        \"Event\": {\n          \"EventTime\": \"2025-02-01T10:15:00Z\",\n          \"ValidityDuration\": \"P10Y\",\n          \"EntityID\": \"did:example:patient-123\",\n          \"EventType\": \"dpv:ExplicitlyExpressedConsent\",\n          \"EventState\": \"dpv:ConsentGiven\"\n        }\n      }\n    ]\n  }\n}\n} \n",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -439,7 +443,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiIyMWYzNzIxYi1lM2Y4LTRlZDItOGMwMi03YTMwNmVhNWU0YmEiLCJpYXQiOjE3NjkxNTI0MTl9.BWU0MxqM7vHGDroK-A8rj_uf2i1Y7Qh72t-z7GsTsNk",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJiOTFmNTk0YS03ZTQ2LTRlZjQtYmYwNS0zN2I3YTg5MGU0NzEiLCJpYXQiOjE3NzA2Mzg3NjV9.57LdU_Is0uksl1ZEM1RXIlVZ2wWwiR1bAbkH5Kbc9pk",
 							"type": "string"
 						}
 					]
@@ -454,7 +458,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n  \"issuer_alias\": \"issuer\"\n   ,\"requested_payload\": {\n  \"@context\": {\n    \"dpv\": \"https://w3id.org/dpv#\",\n    \"dpv-pd\": \"https://w3id.org/dpv/pd#\",\n    \"eu-gdpr\": \"https://w3id.org/dpv/legal/eu/gdpr#\",\n    \"ex\": \"https://consentis-example.com/vocab#\"\n  },\n  \"ConsentRecord\": {\n    \"Header\": {\n      \"Identifier\": \"urn:uuid:baeb73d1-f9eb-4c6d-b0c3-c1ae12810156\",\n      \"ConformsTo\": \"https://example.com/schemas/consent-record-v1.1.json\",\n      \"DataSubject\": \"UUID-NHR-Karavias\"\n    },\n    \"ProcessingInfo\": {\n      \"ConsentNotice\": \"https://consentis-example.com/notices/symptom-checker-nhr\",\n      \"Language\": \"en\",\n      \"Purposes\": [\n        {\n          \"PurposeInfo\": {\n            \"Purpose\": [\n              \"dpv:ImproveHealthcare\",\n              \"ex:ContinuityOfCare\"\n            ],\n            \"PurposeDescription\": \"Collection, transfer, and storage of breast cancer-related symptom data from the Symptom Checker App into the National Healthcare Registry (NHR), enabling authorized healthcare professionals to access the data for continuity of care and medical decision support.\",\n            \"LegalBasis\": [\n              \"eu-gdpr:A6-1-a(Lawfulness of processing)\",\n              \"eu-gdpr:A9-2-a(Processing of special categories of personal data)\"\n            ],\n            \"PersonalData\": [\n              {\n                \"PersonalDataInfo\": {\n                  \"PersonalDataType\": \"dpv-pd:HealthData\",\n\t\t\t\t  \"PersonalDataDescription\": \"Breast cancer surgery\",\n                  \"isSensitive\": true,\n                  \"isSpecialCategory\": true\n                }\n              },\n              {\n                \"PersonalDataInfo\": {\n                  \"PersonalDataType\": \"dpv-pd:HealthData\",\n\t\t\t\t  \"PersonalDataDescription\": \"Malignant neoplasm of breast, unspecified\",\n                  \"isSensitive\": true,\n                  \"isSpecialCategory\": true\n                }\n              }\n            ],\n            \"DataController\": \"nhr-operator\",\n            \"ProcessingMethod\": [\n              \"dpv:Collect\",\n              \"dpv:Transfer\",\n              \"dpv:Store\",\n              \"dpv:Use\",\n              \"dpv:Consult\"\n            ],\n            \"StorageLocation\": [\"nhr:central-database\"],\n            \"RetentionPeriod\": \"P10Y\",\n            \"ProcessingLocation\": \"nhr:central-database\",\n            \"Jurisdiction\": \"eu-gdpr:GDPR\",\n            \"WithdrawalMethod\": \"SSI-User-Wallet(link)\",\n            \"Rights\": [\n              \"eu-gdpr:A7-3(Conditions for consent)\",\n              \"eu-gdpr:A15(Right of access by the data subject)\",\n              \"eu-gdpr:A16(Right to rectification)\",\n              \"eu-gdpr:A17(Right to erasure (‘right to be forgotten’))\",\n              \"eu-gdpr:A18(Right to restriction of processing)\"\n            ],\n            \"Authority\": \"did:example:ndpa\"\n          }\n        }\n      ]\n    },\n    \"Parties\": [\n      {\n        \"Party\": {\n          \"PartyID\": \"did:example:nhr-operator\",\n          \"PartyAddress\": \"123 National Health Ave\",\n          \"PartyEmail\": \"contact@nhr.example.org\",\n          \"PartyURL\": \"https://nhr.example.org\",\n          \"PartyName\": \"National Healthcare Registry Operator\",\n          \"PartyRole\": \"dpv:DataController\",\n          \"PartyContact\": \"+30-210-000-0000\",\n          \"PartyType\": \"dpv:Authority\"\n        }\n      },\n      {\n        \"Party\": {\n          \"PartyID\": \"did:example:symptom-checker\",\n          \"PartyAddress\": \"45 Medical Software St\",\n          \"PartyEmail\": \"support@symptom-checker.example.com\",\n          \"PartyURL\": \"https://symptom-checker.example.com\",\n          \"PartyName\": \"Symptom Checker App Provider\",\n          \"PartyRole\": \"dpv:JointDataController\",\n          \"PartyContact\": \"+30-210-000-1111\",\n          \"PartyType\": \"dpv:Organisation\"\n        }\n      },\n      {\n        \"Party\": {\n          \"PartyID\": \"did:example:consentis-cmp\",\n          \"PartyAddress\": \"12 SSI Innovation Road\",\n          \"PartyEmail\": \"info@consentis.example.org\",\n          \"PartyURL\": \"https://consentis.example.org\",\n          \"PartyName\": \"CONSENTIS CMP\",\n          \"PartyRole\": \"dpv:DataProcessor\",\n          \"PartyContact\": \"+30-210-000-2222\",\n          \"PartyType\": \"dpv:Organisation\"\n        }\n      }\n    ],\n    \"Events\": [\n      {\n        \"Event\": {\n          \"EventTime\": \"2025-02-01T10:15:00Z\",\n          \"ValidityDuration\": \"P10Y\",\n          \"EntityID\": \"did:example:patient-123\",\n          \"EventType\": \"dpv:ExplicitlyExpressedConsent\",\n          \"EventState\": \"dpv:ConsentGiven\"\n        }\n      }\n    ]\n  }\n}\n\n // ,\"purposes\": [\"pcode001\"]//if omitted will be pcode001\n  // ,\"operations\": [\"ocode001\"]//if omitted will be ocode001\n  ,\"durationDays\": 1\n  ,\"seed\": \"b64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"\n    //if public key !ONLY EdDSA keys (Ed25519, Ed448) supported! or  is present the seed is ignored\n   //,\"publicKeyPem\": \"-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAl0FnMYrHAmCRMxLb602axPu6X0hLv44JTOPx8mK+5xE=\\n-----END PUBLIC KEY-----\\n\"\n   //if public key exists we could send the consentId we want but it will check if it exists in the blockcain. if we ommite the consetId the holder must take it from the response in the api\n    //,\"consentId\":\"newtest\"\n  \n}\n\n",
+					"raw": "{\n  \"issuer_alias\": \"issuer\",\n  \"requested_payload\": {\n    \"test\": \"newtest123456\"\n  },\n//   \"purposes\": [\"pcode001\"],\n//   \"operations\": [\"ocode001\"],\n  \"datasetIds\": [\n    \"health:phr\",\n    \"health:chronic_conditions\",\n    \"finance:insurance_underwriting_inputs\"\n  ],\n  \"durationDays\": 1\n  ,\"seed\": \"b64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"\n    //if public key !ONLY EdDSA keys (Ed25519, Ed448) supported! or  is present the seed is ignored\n   //,\"publicKeyPem\": \"-----BEGIN PUBLIC KEY-----\\nMCowBQYDK2VwAyEAl0FnMYrHAmCRMxLb602axPu6X0hLv44JTOPx8mK+5xE=\\n-----END PUBLIC KEY-----\\n\"\n   //if public key exists we could send the consentId we want but it will check if it exists in the blockcain. if we ommite the consetId the holder must take it from the response in the api\n   // ,\"consentId\":\"newtest\"\n}\n",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -488,7 +492,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiIyMWYzNzIxYi1lM2Y4LTRlZDItOGMwMi03YTMwNmVhNWU0YmEiLCJpYXQiOjE3NjkxNjMyNTl9.Uanxd7Y5DFAdfPwqisjiC18_TGQ3bQTgsQgsEcedKno",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJiOTFmNTk0YS03ZTQ2LTRlZjQtYmYwNS0zN2I3YTg5MGU0NzEiLCJpYXQiOjE3NzA2Mzg3NjV9.57LdU_Is0uksl1ZEM1RXIlVZ2wWwiR1bAbkH5Kbc9pk",
 							"type": "string"
 						}
 					]
@@ -534,7 +538,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiIyMWYzNzIxYi1lM2Y4LTRlZDItOGMwMi03YTMwNmVhNWU0YmEiLCJpYXQiOjE3NjkxNTI0MTl9.BWU0MxqM7vHGDroK-A8rj_uf2i1Y7Qh72t-z7GsTsNk",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJiOTFmNTk0YS03ZTQ2LTRlZjQtYmYwNS0zN2I3YTg5MGU0NzEiLCJpYXQiOjE3NzA2Mzg3NjV9.57LdU_Is0uksl1ZEM1RXIlVZ2wWwiR1bAbkH5Kbc9pk",
 							"type": "string"
 						}
 					]
@@ -549,7 +553,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n     //\"consentId\": \"c_b1d7d622f5f46f2e217a68dac98e16a1bad5dc40\"//if ommitted will send the latest created\n     //,\"pres_ex_id\": \"aee8d9e7-78cb-4181-ad24-e4e14b8260c7\" //if omitted it will check the  verifier_alias\n    //,\"verifier_alias\": \"DRX\" // if ommited it will chose the latest generally\n   // \"deny\": \"true\"//optional if want to deny\n   // ,\"reason\": \"string\",//optional if deny true\n    //,\"remove\": \"boolean\"//optional\n   \n}\n",
+					"raw": "{\n    // \"consentId\": \"newtest\"//if ommitted will send the latest created\n     //,\"pres_ex_id\": \"aee8d9e7-78cb-4181-ad24-e4e14b8260c7\" //if omitted it will check the  verifier_alias\n    //,\"verifier_alias\": \"DRX\" // if ommited it will chose the latest generally\n   // \"deny\": \"true\"//optional if want to deny\n   // ,\"reason\": \"string\",//optional if deny true\n    //,\"remove\": \"boolean\"//optional\n   \n}\n",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -583,7 +587,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiI1ZjMzZWY1Ni1kNjc4LTQ4OTQtYTEyNy02YzNhMjQ1MzY3YTUiLCJpYXQiOjE3NjgyODgxMTF9.kUFdXDFs9vEGYEBPKnIBXJbwHPB6MQeNGuNbjJP0_C4",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiIyZmI3ODJiZi00NDIyLTQ4NzctOWEwZi1iZTMxNzQ4MzExOGMiLCJpYXQiOjE3NzA2MzUyMTh9.K8HnfJ_Ef7dqy2NWCUbI43_5v7y2Yu160T8dZxm3RBw",
 							"type": "string"
 						}
 					]
@@ -606,10 +610,13 @@
 					}
 				},
 				"url": {
-					"raw": "http://localhost:8000/agent/proofs/records?state=done",
+					"raw": "http://10.1.6.251:8000/agent/proofs/records?state=done",
 					"protocol": "http",
 					"host": [
-						"localhost"
+						"10",
+						"1",
+						"6",
+						"251"
 					],
 					"port": "8000",
 					"path": [
@@ -635,7 +642,7 @@
 					"bearer": [
 						{
 							"key": "token",
-							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiJhOTJkZWE1NC1hMTViLTRjZWQtYjU5NC01YTEzMTZlNjBmMzAiLCJpYXQiOjE3NjkwODA3ODl9.K1FV7zc4gp4eEmPMp2BVeW-GCHHjCqGM3eKw7urKr4k",
+							"value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ3YWxsZXRfaWQiOiI0ZWUxNjk4ZC04OWIxLTQzMDEtYmIxOS01NjMxNjUzNzM4NzkiLCJpYXQiOjE3NzA2Mzg3MTZ9.fH4zkKKpOFy7z0KIALx1HVNV3AOGHE5DOc_MRmFC8EU",
 							"type": "string"
 						}
 					]
@@ -650,7 +657,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n  \"consentId\": \"c_86d8d8cba05fb4231e5a8377482fe37041ad4116\",\n  \"purpose\": \"pcode001\",\n  \"operation\": \"ocode001\"\n}\n",
+					"raw": "{\n  \"consentId\": \"c_4f882c9981b94ae9a991b4d11fdbbbe0ce57c2a4\",\n  \"purpose\": \"pcsode001\",\n  \"operation\": \"ocode001\"\n}\n",
 					"options": {
 						"raw": {
 							"language": "json"
