@@ -18,6 +18,8 @@ import { ctx, } from '../helper/ctx';
 import { connectionIdFromAlias } from '../helper/connections';
 import { deriveEd25519FromSeed } from '../services/cryptography';
 import { readDIDkeyFromFabric, readLatestActiveDidFromFabric,readVcAnchorFromFabric,withContract } from '../services/ledger';
+import { validateDatasetIds } from '../helper/datasetIds';
+import { generateConsentPolicy } from '../generator';
 const router = Router();
 //import { getLatestByConnection, getLatestGlobal } from "../services/proofRequestCache";
 
@@ -941,6 +943,9 @@ router.post('/credentials/propose', async (req: any, res, next) => {
       seed,
       purposes,
       operations,
+      datasetIds,
+      version,
+      assuranceLevel,
       durationDays,
       publicKeyPem: bodyPub,
       consentId: bodyConsentId,
@@ -987,6 +992,14 @@ router.post('/credentials/propose', async (req: any, res, next) => {
         ? requested_payload_raw
         : JSON.stringify(requestedPayload);
 
+    // Optional datasetIds (for contract descriptor generation later)
+    let datasetIdsArr: string[] | null = null;
+    if (datasetIds !== undefined) {
+      const v = validateDatasetIds(datasetIds);
+      if (!v.ok) return res.status(400).json(v);
+      datasetIdsArr = v.datasetIds || null;
+    }
+
     // consentId: accept optional, else generate
     let consentId = bodyConsentId ? String(bodyConsentId).trim() : makeConsentId();
 
@@ -1028,9 +1041,28 @@ router.post('/credentials/propose', async (req: any, res, next) => {
 
     const purposesArr   = canon(toArr(purposes ?? 'pcode001'));
     const operationsArr = canon(toArr(operations ?? 'ocode001'));
+    const versionStr = version != null ? String(version) : '3';
+    const assurance = assuranceLevel != null ? String(assuranceLevel) : 'AL1';
 
     const durDaysNum = Number(durationDays);
     const includeDuration = Number.isFinite(durDaysNum) && durDaysNum > 0;
+    let policyHash: string | null = null;
+    let templateHash: string | null = null;
+    let templateVersion: string | null = null;
+    try {
+      const { policyHash: ph, templateHash: th, templateVersion: tv } = generateConsentPolicy({
+        purposes: purposesArr,
+        operations: operationsArr,
+        durationDays: includeDuration ? durDaysNum : undefined,
+        version: versionStr,
+        assuranceLevel: assurance
+      });
+      policyHash = ph;
+      templateHash = th;
+      templateVersion = tv;
+    } catch (e) {
+      console.warn('policy hash preview failed:', e);
+    }
 
     const baseCredential: any = {
       '@context': [
@@ -1050,6 +1082,7 @@ router.post('/credentials/propose', async (req: any, res, next) => {
         publicKeyPem,
         purposes: purposesArr,
         operations: operationsArr,
+        ...(datasetIdsArr ? { datasetIds: datasetIdsArr } : {}),
         ...(includeDuration ? { durationDays: durDaysNum } : {})
       }
     };
@@ -1067,6 +1100,7 @@ router.post('/credentials/propose', async (req: any, res, next) => {
       const { data } = await sendProposal(baseCredential);
       return res.json({
         peer, connection_id, holderDid, consentId, publicKeyPem,
+        policyHash, templateHash, templateVersion,
         proposed: true, autoIssuer: true, result: data
       });
     } catch (e: any) {
@@ -1096,9 +1130,11 @@ router.post('/credentials/propose', async (req: any, res, next) => {
       const issuerDid = rec.didID;
 
       try {
-        const { data } = await sendProposal({ ...baseCredential, issuer: issuerDid });
+        const credWithIssuer = { ...baseCredential, issuer: issuerDid };
+        const { data } = await sendProposal(credWithIssuer);
         return res.json({
           peer, connection_id, holderDid, consentId, publicKeyPem, issuerDid,
+          policyHash, templateHash, templateVersion,
           proposed: true, autoIssuer: false, retriedWithIssuer: true, result: data
         });
       } catch (e2: any) {
@@ -1441,7 +1477,7 @@ router.get('/proofs/inbox', async (req: any, res, next) => {
 
     // New: optional filters
     const qConn  = (req.query.connection_id ?? '').toString().trim();
-    const qAlias = (req.query.alias ?? '').toString().trim().toLowerCase();
+    const qAlias = (req.query.verifier_alias ?? req.query.alias ?? '').toString().trim().toLowerCase();
 
     // Map connection_id <-> alias (alias may not be unique)
     const conns = await listConnections(req, peer);
