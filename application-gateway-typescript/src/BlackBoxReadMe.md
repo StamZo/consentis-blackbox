@@ -63,7 +63,7 @@ Content-Type: application/json
   "wallet_name": "alice_wallet",
   "wallet_key": "alice_key",
   "label": "Alice (tenant)"
-  // "newToken": true
+  // "new_token": true
 }
 ```
 
@@ -90,7 +90,7 @@ Response :
 
 Notes:
 
-- `newToken: true` (optional): force a new JWT (e.g. token compromise / rotation).
+- `new_token: true` (optional): force a new JWT (e.g. token compromise / rotation).
 
 Repeat the same call with `x-selected-peer: Verifier` to create verifier tenants.
 
@@ -102,7 +102,7 @@ Repeat the same call with `x-selected-peer: Verifier` to create verifier tenants
 ```http
 POST /agent/did/bootstrap
 x-selected-peer: issuer         
-// or holder / verifier depending who creates the invitation
+// or holder / verifier depending which agent/peer you bootstrap
 Authorization: Bearer <tenant_jwt>   // holder/verifier tenants only (issuer is single-tenant)
 Content-Type: application/json
 ```
@@ -178,7 +178,7 @@ Response includes an `invitation_url` and/or `invitation` object.
 
 ### 4.2 Accept invitation
 
-On the **other** side (e.g. holder accepting issuer invitation):
+On the **other** side (e.g. holder accepting verifier invitation):
 
 ```http
 POST /agent/invitations/accept
@@ -282,7 +282,7 @@ Body:
 ```
 
 Notes:
-- `requested_payload` (optional) is an arbitrary JSON object passed through for UI/context; it is surfaced back to the holder via `/agent/proofs/inbox` as `requested_payload`.
+- `requested_payload` (optional) is an arbitrary JSON value (object/array) passed through for UI/context; it is surfaced back to the holder via `/agent/proofs/inbox` as `requested_payload`.
 - `request_payload` (optional) is an **array of strings** listing the requested consented item keys. If omitted, the proof request still asks for `credentialSubject.consentId`.
 - By default the proof request also asks for `credentialSubject.requested_payload` and `credentialSubject.requested_payload_raw` so the verifier can receive the full consent JSON.
 - If `request_payload` is provided, the proof request also requires those keys via `consentedItems[*]` constraints.
@@ -343,7 +343,7 @@ Use the `pres_ex_id` and/or verifier_alias/connection in the next step if you wa
 
 ## 7. Holder creates the Consent VC
 
-The holder now **proposes** a consent VC that will later be issued by the issuer (often automatically), and then presented as proof.
+The holder now **proposes** a consent VC that will be issued by the issuer (automatically), and then presented as proof.
 
 ```http
 POST /agent/credentials/propose
@@ -358,8 +358,20 @@ Minimal example:
 {
   "issuer_alias": "issuer",
   "requested_payload": {
-    "consent": "grant",
-    "scope": { "labs": true }
+    "@context": {
+      "dpv": "https://w3id.org/dpv#",
+      "dpv-pd": "https://w3id.org/dpv/pd#",
+      "eu-gdpr": "https://w3id.org/dpv/legal/eu/gdpr#",
+      "ex": "https://consentis-example.com/vocab#"
+    },
+    "ConsentRecord": {
+      "Header": {
+        "Identifier": "urn:uuid:...",
+        "ConformsTo": "https://example.com/schemas/consent-record-v1.1.json",
+        "DataSubject": "UUID-NHR-Karavias"
+      }
+      // ... ProcessingInfo, Parties, Events ...
+    }
   },
   "durationDays": 1,
   "seed": "b64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
@@ -557,26 +569,53 @@ Filters:
 Example verifier-side records for the same thread:
 
 ```json
-[
-  {
-    "pres_ex_id": "e2ef3e65-1f44-4b3c-be43-69a00981504d",
-    "contact_alias": "John",
-    "state": "abandoned",
-    "my_role": "verifier",
-    "consentId": null,
-    "abandoned_reason": "abandoned: holder_denied_request"
-  },
-  {
-    "pres_ex_id": "1fdeb974-e7a7-4a81-86ed-b1f80730781a",
-    "contact_alias": "John",
-    "state": "done",
-    "my_role": "verifier",
-    "verified": true,
-    "consentId": "c_296ad7bb98c1e3af0138f4f3489575629e551a0b",
-    "abandoned_reason": null
-  }
-]
+{
+  "peer": "3",
+  "total": 1,
+  "results": [
+    {
+      "pres_ex_id": "89432a29-6c12-41d6-b0e8-a98837fb66bb",
+      "connection_id": "7b167995-4d7d-4287-90c6-159c82ab6722",
+      "contact_alias": "John",
+      "thread_id": "8571d57a-a828-47e1-bdb7-bb68cb8ac50d",
+      "state": "done",
+      "my_role": "verifier",
+      "verified": true,
+      "created_at": "2026-02-09T11:11:10.106113Z",
+      "updated_at": "2026-02-09T11:12:39.854141Z",
+      "consentId": "c_af1a9b0c7e02a6754f4c6d257730383927b73123",
+      "requested_payload": {
+        "test": "newtest123456"
+      },
+      "requested_payload_raw": "{\"test\":\"newtest123456\"}",
+      "requested_payload_request": {
+        "@context": {
+          "dpv": "https://w3id.org/dpv#"
+        },
+        "ConsentRecord": {
+          "Header": {
+            "Identifier": "urn:uuid:baeb73d1-f9eb-4c6d-b0c3-c1ae12810156"
+          }
+        }
+      },
+      "requested_payload_raw_request": null,
+      "abandoned_reason": null,
+      "requested": [
+        {
+          "id": "consent_vc",
+          "name": "DrX consent for claim 123"
+        }
+      ],
+      "challenge": "ed55dad1-5f33-402e-94fb-a39f4fe07aaf",
+      "domain": "example.org"
+    }
+  ]
+}
 ```
+
+Notes:
+- `requested_payload_request` / `requested_payload_raw_request` come from the verifier proof request (`POST /agent/proofs/request`).
+- `requested_payload` / `requested_payload_raw` come from the presented VC (`credentialSubject`).
 
 ---
 
@@ -591,6 +630,8 @@ x-selected-peer: verifier
 Authorization: Bearer <verifier_tenant_jwt>
 Content-Type: application/json
 ```
+
+`purpose` and `operation` are optional; defaults are `pcode001` and `ocode001`.
 
 ```json
 {
@@ -643,7 +684,7 @@ MCowBQYDK2VwAyEAVaciqTAXm9w7PW8fHToUrFGMo+z406uX2NH6cuEDHkI=
   "signature": "Ejr8L8wz0RLEpsegvXGeokbDR38rjqHZmI6xf+xWc2vj4f2yOczw+1mK+aUJ1LoTfl5CW7Z9Nt0V40L/ejEoDQ=="
 }
 ```
-*for signture see "Helper endpoint for external signatures" below*
+*for signature see "Helper endpoint for external signatures" below*
 - API verifies the signature against `publicKeyPem` and records the revocation.
 
 ### 11.3 Local signing via private key PEM
