@@ -6,10 +6,10 @@ export class DID {
     public docType: string = 'DID';
 
     @Property()
-    public didID: string; // base64 or hex-encoded public key (used as the primary key)
+    public didID!: string; // base64 or hex-encoded public key (used as the primary key)
 
     @Property()
-    public creator: string; 
+    public creator!: string; 
 
     @Property()
     public revoked: boolean = false;
@@ -36,13 +36,13 @@ export class DID {
 @Object() 
 export class DIDAuditEvent {
     @Property()
-    public timestamp: string; // ISO 8601 date
+    public timestamp!: string; // ISO 8601 date
 
     @Property()
     public revoked?: boolean;
 
     @Property()
-    public txId: string; // Transaction ID for traceability
+    public txId!: string; // Transaction ID for traceability
 
     @Property()
     public action?: string;
