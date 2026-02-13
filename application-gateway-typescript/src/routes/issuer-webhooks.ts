@@ -22,8 +22,9 @@ function pickConsentInputs(rec: any) {
   const purposes     = cs.purposes;
   const operations   = cs.operations;
   const durationDays = cs.durationDays;
+  const datasetIds   = cs.datasetIds;
 
-  return { consentId, publicKeyPem, purposes, operations, durationDays };
+  return { consentId, publicKeyPem, purposes, operations, durationDays, datasetIds };
 }
 
 // ACA-Py appends /topic/<topic> to --webhook-url
@@ -39,7 +40,7 @@ router.post('/webhooks/issuer/topic/issue_credential_v2_0', async (req, res) => 
   const inputs = pickConsentInputs(req.body);
   console.log('ANCHOR INPUTS:', inputs);
 
-  const { consentId, publicKeyPem, purposes, operations, durationDays } = inputs || {};
+  const { consentId, publicKeyPem, purposes, operations, durationDays, datasetIds } = inputs || {};
   if (!consentId || !publicKeyPem) {
     console.warn('MISSING FIELDS for anchoring', { consentId: !!consentId, publicKeyPem: !!publicKeyPem });
     return res.json({ anchored: false, reason: 'missing_consent_fields' });
@@ -71,6 +72,7 @@ router.post('/webhooks/issuer/topic/issue_credential_v2_0', async (req, res) => 
     ...(Array.isArray(purposes)   && purposes.length   ? { purposes }   : {}),
     ...(Array.isArray(operations) && operations.length ? { operations } : {}),
     ...(Number.isFinite(+durationDays) && +durationDays > 0 ? { durationDays: +durationDays } : {}),
+    ...(Array.isArray(datasetIds) && datasetIds.length ? { datasetIds } : {})
   };
 
   try {
