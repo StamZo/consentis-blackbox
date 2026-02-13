@@ -6,22 +6,22 @@ export class VcAnchor {
     public docType: string = 'vcAnchor';
 
     @Property()
-    public assetId: string; // base64 or hex-encoded public key (used as the primary key)
+    public assetId!: string; // base64 or hex-encoded public key (used as the primary key)
 
      @Property()
-    public creator: string; 
+    public creator!: string; 
 
     @Property()
-    public holderBindingHash: string; // hash PEM-formatted public key
+    public holderBindingHash!: string; // hash PEM-formatted public key
 
     // @Property()
     // public vcHash: string; // hash of the VC (e.g., SHA256, hex/base64)
 
     @Property()
-    public policyHash: string; // hash of the policy (e.g., SHA256, hex/base64)
+    public policyHash!: string; // hash of the policy (e.g., SHA256, hex/base64)
 
    @Property()
-    public templateHash: string; // hash of the template (e.g., SHA256, hex/base64)
+    public templateHash!: string; // hash of the template (e.g., SHA256, hex/base64)
 
     @Property() 
     public validUntil: string | null = null; 
@@ -54,13 +54,13 @@ export class VcAnchor {
 @Object() 
 export class AuditEvent {
     @Property()
-    public timestamp: string; // ISO 8601 date
+    public timestamp!: string; // ISO 8601 date
 
     @Property()
     public revoked: boolean | null = null; // For revocation events; null for access logs
 
     @Property()
-    public txId: string; // Transaction ID for traceability
+    public txId!: string; // Transaction ID for traceability
 
     // @Property()
     // public accessRequestHash: string | null = null; // SHA-256 hex of accessRequest JSON (for access logs; null for revocations)
