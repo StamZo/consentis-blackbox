@@ -1,0 +1,1587 @@
+openapi: 3.0.3
+info:
+  title: Consentis Blackbox Gateway API
+  version: 0.2.0
+  description: |-
+    OpenAPI spec for the “blackbox” REST endpoints exposed by the Consentis demo gateway.
+
+    Base URL: `http://localhost:8000`
+
+    ## Running the docs UI
+    - Start gateway (port 8000) and allow your docs origin, e.g.:
+      `ALLOWED_ORIGINS=http://localhost:8089,http://127.0.0.1:8089 npm start`
+    - Serve this folder:
+      `cd fabric-samples/asset-transfer-basic/application-gateway-typescript/docs && python3 -m http.server 8089`
+    - Open:
+      `http://localhost:8089`
+
+    ## Peer selection
+    Most `/agent/*` endpoints target an internal peer via `x-selected-peer`:
+    - `issuer` (Org1, single-tenant)
+    - `holder` (Org2, multitenant)
+    - `verifier` (Org3, multitenant)
+    - aliases: `1|2|3`
+
+    ## Tenant JWTs (holder/verifier)
+    Holder/verifier calls require an ACA-Py tenant JWT.
+
+    In this Swagger UI:
+    - Use the per-request `x-tenant-jwt` field (it will be sent as `Authorization: Bearer <jwt>`), or
+    - Use the top-right “Authorize” button (Bearer token).
+
+    Note: JSON request bodies must be valid JSON (no `//` comments).
+
+servers:
+  - url: http://10.1.6.251:8000
+  - url: http://localhost:8000
+  - url: http://127.0.0.1:8000
+  - url: http://{host}:{port}
+    description: Custom host/port (editable in Swagger UI).
+    variables:
+      host:
+        default: localhost
+        description: API host (e.g. `10.1.6.251` when browsing from another machine).
+      port:
+        default: "8000"
+        description: API port.
+
+tags:
+  - name: Tenants
+    description: Create multitenant wallets and mint JWTs.
+  - name: DID
+    description: Bootstrap DID material (issuer anchoring + tenant did:key).
+  - name: Connections
+    description: DIDComm connections and invitations.
+  - name: Proofs
+    description: Proof request/inbox/present/verify/revoke flows.
+  - name: Credentials
+    description: Consent VC issuance and wallet queries.
+  - name: Crypto
+    description: Local crypto helper endpoints.
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    SelectedPeer:
+      name: x-selected-peer
+      in: header
+      required: true
+      description: Selects the target agent/peer (`issuer|holder|verifier|1|2|3`). Case-insensitive.
+      schema:
+        type: string
+        enum: [issuer, holder, verifier, "1", "2", "3"]
+
+    SelectedPeerTenants:
+      name: x-selected-peer
+      in: header
+      required: true
+      description: Selects the multitenant agent (`holder|verifier|2|3`). Case-insensitive.
+      schema:
+        type: string
+        enum: [holder, verifier, "2", "3"]
+
+    SelectedPeerHolder:
+      name: x-selected-peer
+      in: header
+      required: true
+      description: Must be `holder` (Org2) / `2`.
+      schema:
+        type: string
+        enum: [holder, "2"]
+
+    SelectedPeerVerifier:
+      name: x-selected-peer
+      in: header
+      required: true
+      description: Must be `verifier` (Org3) / `3`.
+      schema:
+        type: string
+        enum: [verifier, "3"]
+
+    AcapyAdminKey:
+      name: x-api-key
+      in: header
+      required: false
+      description: Optional ACA-Py admin API key passthrough (used by tenant creation/token minting).
+      schema:
+        type: string
+
+    TenantJwt:
+      name: x-tenant-jwt
+      in: header
+      required: false
+      description: |-
+        ACA-Py tenant JWT for holder/verifier calls.
+
+        This is a Swagger-UI convenience header: when set, the docs page will send it as
+        `Authorization: Bearer <jwt>` and will not forward `x-tenant-jwt` to the API.
+
+        Paste either a raw JWT or `Bearer <jwt>`.
+      schema:
+        type: string
+      example: "<TENANT_JWT>"
+
+    TenantJwtRequired:
+      name: x-tenant-jwt
+      in: header
+      required: true
+      description: |-
+        ACA-Py tenant JWT (required for this endpoint).
+
+        Swagger-UI convenience header mapped to `Authorization: Bearer <jwt>`.
+      schema:
+        type: string
+      example: "<TENANT_JWT>"
+
+  schemas:
+    AnyObject:
+      type: object
+      additionalProperties: true
+
+    Error:
+      type: object
+      additionalProperties: true
+      required: [error]
+      properties:
+        error:
+          oneOf:
+            - type: string
+            - $ref: "#/components/schemas/AnyObject"
+        message:
+          type: string
+
+    Peer:
+      description: Resolved peer id (`1|2|3`) as returned by the gateway.
+      type: string
+      enum: ["1", "2", "3"]
+
+    DatasetId:
+      type: string
+      description: Controlled vocabulary for `datasetIds`.
+      enum:
+        - health:phr
+        - health:lab_results
+        - health:diagnoses
+        - health:prescriptions
+        - health:clinical_notes
+        - health:imaging
+        - health:summary
+        - health:chronic_conditions
+        - health:risk_factors
+        - health:recent_treatments
+        - finance:insurance_underwriting_inputs
+        - health:population_cohorts
+        - health:aggregated_statistics
+        - health:registry_extracts
+        - finance:actuarial_analysis_inputs
+
+    TenantCreateRequest:
+      type: object
+      required: [wallet_name, wallet_key, label]
+      properties:
+        wallet_name: { type: string }
+        wallet_key: { type: string }
+        label: { type: string }
+        wallet_type:
+          type: string
+          default: askar
+        wallet_webhook_urls:
+          type: array
+          items: { type: string }
+          default: []
+        wallet_dispatch_type:
+          type: string
+          default: base
+        new_token:
+          description: |-
+            If `true`, mints a new token for an existing wallet with the same `wallet_name` instead of creating a new wallet.
+          oneOf:
+            - type: boolean
+            - type: string
+
+    TenantCreateResponse:
+      type: object
+      required: [peer, wallet_id, settings, token]
+      properties:
+        peer: { $ref: "#/components/schemas/Peer" }
+        created:
+          type: boolean
+          description: Present only on some responses; `false` indicates token minting path.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        wallet_id: { type: string }
+        key_management_mode: { type: string }
+        settings:
+          type: object
+          additionalProperties: true
+        token: { type: string }
+
+    TenantCreateConflictResponse:
+      type: object
+      required: [error, peer, created, wallet_id, settings]
+      properties:
+        error:
+          type: string
+          enum: [wallet_already_exists]
+        peer: { $ref: "#/components/schemas/Peer" }
+        created:
+          type: boolean
+          enum: [false]
+        wallet_id: { type: string }
+        settings:
+          type: object
+          additionalProperties: true
+        hint: { type: string }
+
+    DidBootstrapRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        new:
+          type: boolean
+          description: |-
+            If `true`, forces DID creation/rotation.
+
+            Behavior:
+            - If omitted/false: reuse latest existing DID(s) for that peer.
+            - If `true`:
+              - `issuer`: rotates the BLS `did:key` used for BBS+ signing and updates the on-chain record; the public `did:fabric:issuer` remains stable (Ed25519 rotation not implemented).
+              - `holder`/`verifier`: creates new `did:key` values in the tenant wallet (no on-chain anchoring).
+
+    DidBootstrapResponse:
+      type: object
+      required: [peer, publicDid, stored]
+      properties:
+        peer: { $ref: "#/components/schemas/Peer" }
+        publicDid:
+          type: string
+          description: "did:fabric:issuer for issuer; did:key:... for tenants."
+        publicVerkey: { type: string }
+        bbsDid:
+          type: string
+          nullable: true
+          description: BLS `did:key` used for BBS+ signatures (Bls12381G2).
+        stored:
+          type: boolean
+          description: "true only when issuer DID record is present/updated on-chain."
+        storeResult:
+          nullable: true
+          oneOf:
+            - $ref: "#/components/schemas/AnyObject"
+            - type: string
+
+    ConnectToIssuerRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        issuer_alias:
+          type: string
+          default: issuer
+          description: Alias for the holder's connection to the issuer.
+        their_public_did:
+          type: string
+          default: did:fabric:issuer
+        protocol:
+          type: string
+          default: didexchange/1.1
+        service_accept:
+          type: array
+          items: { type: string }
+          default: ["didcomm/v2", "didcomm/aip2;env=rfc19"]
+        auto_accept:
+          type: boolean
+          default: true
+
+    ConnectToIssuerResponse:
+      type: object
+      required: [peer, connection_id, result]
+      properties:
+        peer: { $ref: "#/components/schemas/Peer" }
+        connection_id: { type: string }
+        result: { $ref: "#/components/schemas/AnyObject" }
+
+    InvitationCreateRequest:
+      type: object
+      required: [contact_alias]
+      properties:
+        contact_alias: { type: string }
+        autoAccept:
+          type: boolean
+          default: true
+
+    InvitationCreateResponse:
+      allOf:
+        - type: object
+          required: [peer]
+          properties:
+            peer: { $ref: "#/components/schemas/Peer" }
+        - $ref: "#/components/schemas/AnyObject"
+
+    InvitationAcceptRequest:
+      type: object
+      properties:
+        invitation:
+          $ref: "#/components/schemas/AnyObject"
+        invitation_url:
+          type: string
+          description: OOB invitation URL containing `oob` or `c_i` query param.
+        contact_alias: { type: string }
+        alias:
+          type: string
+          description: Back-compat alias field (treated as contact_alias).
+      anyOf:
+        - required: [invitation, contact_alias]
+        - required: [invitation_url, contact_alias]
+
+    InvitationAcceptResponse:
+      allOf:
+        - type: object
+          required: [peer]
+          properties:
+            peer: { $ref: "#/components/schemas/Peer" }
+        - $ref: "#/components/schemas/AnyObject"
+
+    ConnectionsListResponse:
+      type: object
+      required: [peer, results]
+      properties:
+        peer: { $ref: "#/components/schemas/Peer" }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/AnyObject" }
+
+    ConnectionsDeleteResponse:
+      type: object
+      required: [peer, deleted, count]
+      properties:
+        peer: { $ref: "#/components/schemas/Peer" }
+        deleted:
+          type: array
+          items: { type: string }
+        count: { type: number }
+
+    CredentialsProposeRequest:
+      type: object
+      required: [issuer_alias, requested_payload]
+      properties:
+        issuer_alias:
+          type: string
+          description: Connection alias for the holder's issuer connection (default usually `issuer`).
+        requested_payload:
+          type: object
+          additionalProperties: true
+          description: |-
+            Required non-empty JSON object stored into the VC as `credentialSubject.requested_payload`.
+
+            Note: the top-level keys become `credentialSubject.consentedItems` (used by verifiers when requesting specific items).
+            Warning: if you include JSON-LD keys like `@context` at the top level, they will also become consented items (often not what you want); consider nesting JSON-LD under a single key (e.g. `consent_record`).
+        requested_payload_raw:
+          type: string
+          description: Optional raw-string copy of `requested_payload` (if omitted it is derived via JSON.stringify).
+        seed:
+          type: string
+          description: Deterministic seed (supports `b64:` prefix) used to derive the Ed25519 keypair for revocation binding.
+        publicKeyPem:
+          type: string
+          description: Optional EdDSA public key PEM (if provided, `seed` is ignored).
+        consentId:
+          type: string
+          description: Optional client-chosen consent id (must be unique on-chain). If omitted, the gateway generates one automatically (e.g. `c_...`).
+        purposes:
+          oneOf:
+            - type: string
+            - type: array
+              items: { type: string }
+          default: pcode001
+        operations:
+          oneOf:
+            - type: string
+            - type: array
+              items: { type: string }
+          default: ocode001
+        datasetIds:
+          type: array
+          items: { $ref: "#/components/schemas/DatasetId" }
+          description: Optional contract-descriptor dataset ids (controlled vocabulary).
+        durationDays:
+          type: number
+          description: If present and > 0, sets the validity window in days.
+        assuranceLevel:
+          type: string
+          default: AL1
+        version:
+          type: string
+          default: "3"
+
+    CredentialsProposeResponse:
+      type: object
+      required: [peer, connection_id, consentId, publicKeyPem, proposed, result]
+      properties:
+        peer: { $ref: "#/components/schemas/Peer" }
+        connection_id: { type: string }
+        holderDid: { type: string }
+        consentId: { type: string }
+        publicKeyPem: { type: string }
+        issuerDid: { type: string }
+        policyHash:
+          type: string
+          nullable: true
+        templateHash:
+          type: string
+          nullable: true
+        templateVersion:
+          type: string
+          nullable: true
+        proposed: { type: boolean }
+        autoIssuer: { type: boolean }
+        retriedWithIssuer: { type: boolean }
+        result: { $ref: "#/components/schemas/AnyObject" }
+
+    ProofRequestRequest:
+      type: object
+      required: [holder_alias]
+      properties:
+        holder_alias:
+          type: string
+          description: Alias of the verifier's active connection to the holder.
+        request_label:
+          type: string
+          description: Human-readable label shown to the holder.
+        request_payload:
+          type: array
+          items: { type: string }
+          description: Optional list of requested consented item keys.
+        requested_payload:
+          description: Optional arbitrary JSON payload (object or array) sent with the request for UI/context.
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: array
+              items: {}
+        requested_payload_raw: { type: string }
+        name:
+          type: string
+          description: Optional presentation_definition name override.
+        presentation_definition: { $ref: "#/components/schemas/AnyObject" }
+        options: { $ref: "#/components/schemas/AnyObject" }
+
+    ProofRequestResponse:
+      type: object
+      required: [peer, connection_id, requested, result]
+      properties:
+        peer: { $ref: "#/components/schemas/Peer" }
+        connection_id: { type: string }
+        requested:
+          type: boolean
+          enum: [true]
+        request_label:
+          type: string
+          nullable: true
+        wantedItems:
+          type: array
+          items: { type: string }
+        requested_payload:
+          nullable: true
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: array
+              items: {}
+        requested_payload_raw:
+          type: string
+          nullable: true
+        result: { $ref: "#/components/schemas/AnyObject" }
+
+    ProofInboxItem:
+      type: object
+      required: [pres_ex_id, connection_id, state]
+      properties:
+        pres_ex_id: { type: string }
+        connection_id: { type: string }
+        verifier_alias:
+          type: string
+          nullable: true
+          description: Best-effort alias derived from the holder's connection list.
+        thread_id:
+          type: string
+          nullable: true
+        state: { type: string }
+        my_role:
+          type: string
+          nullable: true
+        request_label:
+          type: string
+          nullable: true
+        requested:
+          type: array
+          items: { $ref: "#/components/schemas/AnyObject" }
+        requested_payload:
+          nullable: true
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: array
+              items: {}
+        requested_payload_raw:
+          type: string
+          nullable: true
+        suggested_record_ids:
+          type: array
+          items: { type: string }
+        challenge:
+          type: string
+          nullable: true
+        domain:
+          type: string
+          nullable: true
+
+    ProofInboxResponse:
+      type: object
+      required: [peer, total, results]
+      properties:
+        peer: { $ref: "#/components/schemas/Peer" }
+        total: { type: number }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/ProofInboxItem" }
+
+    ProofSendRequest:
+      type: object
+      additionalProperties: false
+      description: |-
+        Resolution order:
+        1. Target proof request: `pres_ex_id` if provided; otherwise latest `request-received` for `verifier_alias`; otherwise latest `request-received` overall.
+        2. Credential to present: `consentId` if provided; otherwise latest suitable wallet credential for that proof request.
+      properties:
+        consentId:
+          type: string
+          description: Optional specific consent VC to present; if omitted, uses the latest suitable wallet credential for the selected proof request.
+        pres_ex_id:
+          type: string
+          description: Optional target proof exchange id; if omitted, request selection falls back to `verifier_alias` and then latest overall.
+        verifier_alias:
+          type: string
+          description: Optional verifier alias filter (used only when `pres_ex_id` is omitted).
+        deny:
+          oneOf:
+            - type: boolean
+            - type: string
+          description: If true, sends a problem-report (denial) instead of a presentation.
+        reason:
+          type: string
+          description: Optional denial reason (used as problem-report description).
+        remove:
+          oneOf:
+            - type: boolean
+            - type: string
+          description: When denying, best-effort delete the proof record after reporting.
+
+    ProofSendGrantResponse:
+      type: object
+      required: [peer, pres_ex_id, used_record_id, result]
+      properties:
+        peer: { $ref: "#/components/schemas/Peer" }
+        pres_ex_id: { type: string }
+        used_descriptor_id:
+          type: string
+          nullable: true
+        used_record_id: { type: string }
+        used_consentId:
+          type: string
+          nullable: true
+        resolved_alias:
+          type: string
+          nullable: true
+        resolved_connection_id:
+          type: string
+          nullable: true
+        result: { $ref: "#/components/schemas/AnyObject" }
+
+    ProofSendDenyResponse:
+      type: object
+      required: [peer, pres_ex_id, denied]
+      properties:
+        peer: { $ref: "#/components/schemas/Peer" }
+        pres_ex_id: { type: string }
+        denied:
+          type: boolean
+          enum: [true]
+        reason: { type: string }
+        removed: { type: boolean }
+        record:
+          $ref: "#/components/schemas/AnyObject"
+          nullable: true
+
+    ProofRecordsResponse:
+      type: object
+      required: [peer, total, results]
+      properties:
+        peer: { $ref: "#/components/schemas/Peer" }
+        total: { type: number }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/AnyObject" }
+
+    ProofVerifyRequest:
+      type: object
+      required: [consentId]
+      properties:
+        consentId: { type: string }
+        purpose:
+          type: string
+          default: pcode001
+        operation:
+          type: string
+          default: ocode001
+
+    ProofVerifyOkResponse:
+      type: object
+      required: [active, consentId, issuerDid, vp_verified, chain, consent_check]
+      properties:
+        active:
+          type: boolean
+          enum: [true]
+        consentId: { type: string }
+        issuerDid: { type: string }
+        vp_verified: { type: boolean }
+        chain:
+          type: object
+          additionalProperties: true
+        consent_check:
+          type: object
+          additionalProperties: true
+
+    ProofRevokeRequest:
+      type: object
+      required: [consentId]
+      properties:
+        consentId: { type: string }
+        seed:
+          type: string
+          description: Local signing via deterministic seed (same used at issuance).
+        privateKeyPem:
+          type: string
+          description: Local signing via private key PEM (Ed25519/Ed448).
+        publicKeyPem:
+          type: string
+          description: Required when providing `signature` (externally-signed mode).
+        signature:
+          type: string
+          description: Externally-provided signature (base64) over `${consentId}|${createdTimestamp}`.
+
+    ProofRevokeResponse:
+      type: object
+      required: [revoked, consentId]
+      properties:
+        revoked: { type: boolean }
+        consentId: { type: string }
+        message: { type: string }
+        error: { type: string }
+        details: { $ref: "#/components/schemas/AnyObject" }
+
+    DeriveKeypairRequest:
+      type: object
+      required: [seed, assetId]
+      properties:
+        seed: { type: string }
+        assetId: { type: string }
+
+    DeriveKeypairResponse:
+      type: object
+      required: [privateKeyPem, publicKeyPem, alg]
+      properties:
+        privateKeyPem: { type: string }
+        publicKeyPem: { type: string }
+        alg: { type: string }
+
+    SignVcAnchorActionRequest:
+      type: object
+      required: [assetId, timestamp, privateKeyPem]
+      properties:
+        assetId: { type: string }
+        timestamp:
+          type: string
+          format: date-time
+        privateKeyPem: { type: string }
+
+    SignVcAnchorActionResponse:
+      type: object
+      required: [assetId, timestamp, signature, toSign, alg]
+      properties:
+        assetId: { type: string }
+        timestamp:
+          type: string
+          format: date-time
+        signature:
+          type: string
+          description: Base64 signature.
+        toSign:
+          type: string
+          description: "${assetId}|${timestamp}"
+        alg: { type: string }
+
+paths:
+  /agent/tenants/create:
+    post:
+      tags: [Tenants]
+      operationId: createTenant
+      summary: Create a tenant wallet or mint a new tenant token
+      description: |-
+        Creates a multitenant wallet (ACA-Py `/multitenancy/wallet`) for **holder** or **verifier**.
+
+        If `new_token=true`, does not create a wallet; it mints a new token for an existing wallet with the same `wallet_name`.
+
+        Tip: If you get `409 wallet_already_exists`, call again with `"new_token": true` to mint a fresh JWT.
+      parameters:
+        - $ref: "#/components/parameters/SelectedPeerTenants"
+        - $ref: "#/components/parameters/AcapyAdminKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TenantCreateRequest" }
+            examples:
+              create:
+                value:
+                  wallet_name: test_wallet
+                  wallet_key: test_key
+                  label: "Test (tenant)"
+              mintNewToken:
+                value:
+                  wallet_name: test_wallet
+                  wallet_key: test_key
+                  label: "Test (tenant)"
+                  new_token: true
+      responses:
+        "200":
+          description: Tenant created or token minted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TenantCreateResponse" }
+              examples:
+                created:
+                  value:
+                    peer: "2"
+                    created_at: "2026-02-11T09:26:19.930Z"
+                    updated_at: "2026-02-11T09:26:20.364Z"
+                    wallet_id: "64fb54bd-f842-4635-b80d-996b3fb354d9"
+                    key_management_mode: "managed"
+                    settings:
+                      wallet.type: askar
+                      wallet.name: test_wallet
+                      wallet.webhook_urls: []
+                      wallet.dispatch_type: base
+                      default_label: "Test (tenant)"
+                      wallet.id: "64fb54bd-f842-4635-b80d-996b3fb354d9"
+                    token: "<TENANT_JWT>"
+                tokenMinted:
+                  value:
+                    peer: "2"
+                    created: false
+                    wallet_id: "64fb54bd-f842-4635-b80d-996b3fb354d9"
+                    settings:
+                      wallet.type: askar
+                      wallet.name: test_wallet
+                    token: "<TENANT_JWT>"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: Wallet not found (when minting a new token)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              examples:
+                walletNotFound:
+                  value:
+                    error: wallet_not_found
+                    message: No wallet named "test_wallet"
+        "409":
+          description: Wallet already exists
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TenantCreateConflictResponse" }
+              examples:
+                exists:
+                  value:
+                    error: wallet_already_exists
+                    peer: "2"
+                    created: false
+                    wallet_id: "64fb54bd-f842-4635-b80d-996b3fb354d9"
+                    settings:
+                      wallet.type: askar
+                      wallet.name: test_wallet
+                    hint: 'Call again with "new_token": true to mint a new token.'
+
+  /agent/did/bootstrap:
+    post:
+      tags: [DID]
+      operationId: bootstrapDid
+      summary: Bootstrap DID(s) for the selected peer
+      description: |-
+        Bootstraps DID material.
+
+        Tenant JWT is required for `holder`/`verifier` and not required for `issuer` (single-tenant).
+      parameters:
+        - $ref: "#/components/parameters/TenantJwt"
+        - $ref: "#/components/parameters/SelectedPeer"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DidBootstrapRequest" }
+            examples:
+              reuseExisting:
+                value: {}
+              forceNew:
+                value:
+                  new: true
+      responses:
+        "200":
+          description: DID information
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DidBootstrapResponse" }
+              examples:
+                issuerExisting:
+                  value:
+                    peer: "1"
+                    publicDid: "did:fabric:issuer"
+                    publicVerkey: "4FvQ7bLtu4ookwS618FCnyyU5k3TEE8H2M96GEWF2sQ6"
+                    bbsDid: "did:key:zUC77..."
+                    stored: true
+                    storeResult:
+                      result: "DID for did:fabric:issuer already exists."
+                holderNew:
+                  value:
+                    peer: "2"
+                    publicDid: "did:key:z6Mk..."
+                    publicVerkey: "..."
+                    bbsDid: "did:key:zUC7..."
+                    stored: false
+                    storeResult: null
+        "400":
+          description: Invalid peer/header/body
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /agent/connect-to-issuer:
+    post:
+      tags: [Connections]
+      operationId: connectToIssuer
+      summary: Holder connects to issuer public DID
+      description: Creates a DIDComm connection from a holder tenant to the issuer public DID.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantJwtRequired"
+        - $ref: "#/components/parameters/SelectedPeerHolder"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConnectToIssuerRequest" }
+            examples:
+              minimal:
+                value:
+                  issuer_alias: issuer
+              maximal:
+                value:
+                  issuer_alias: issuer
+                  their_public_did: did:fabric:issuer
+                  protocol: didexchange/1.1
+                  service_accept:
+                    - didcomm/v2
+                    - didcomm/aip2;env=rfc19
+                  auto_accept: true
+      responses:
+        "200":
+          description: Connection created/updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectToIssuerResponse" }
+        "401":
+          description: Missing/invalid tenant token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Alias already in use on an active connection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnyObject" }
+
+  /agent/invitations/create:
+    post:
+      tags: [Connections]
+      operationId: createInvitation
+      summary: Create an out-of-band invitation
+      description: Creates an OOB invitation (inviter side). Use `/agent/invitations/accept` on the other side.
+      parameters:
+        - $ref: "#/components/parameters/TenantJwt"
+        - $ref: "#/components/parameters/SelectedPeerTenants"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InvitationCreateRequest" }
+            examples:
+              example:
+                value:
+                  contact_alias: DrX
+      responses:
+        "200":
+          description: Invitation created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InvitationCreateResponse" }
+              examples:
+                created:
+                  value:
+                    peer: "3"
+                    state: initial
+                    invi_msg_id: "6de448f4-9dde-4f55-84d4-601ec2262c19"
+                    oob_id: "3db88efb-2fd0-40be-99f3-4de7d02208a2"
+                    invitation_url: "http://verifier:8070?oob=..."
+        "401":
+          description: Missing/invalid tenant token (when using holder/verifier)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Alias already in use on an active connection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnyObject" }
+
+  /agent/invitations/accept:
+    post:
+      tags: [Connections]
+      operationId: acceptInvitation
+      summary: Accept an invitation (invitation object or invitation URL)
+      parameters:
+        - $ref: "#/components/parameters/TenantJwt"
+        - $ref: "#/components/parameters/SelectedPeerTenants"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InvitationAcceptRequest" }
+            examples:
+              byUrl:
+                value:
+                  invitation_url: "http://verifier:8070?oob=..."
+                  contact_alias: DrX
+              byObject:
+                value:
+                  invitation:
+                    "@type": "https://didcomm.org/out-of-band/2.0/invitation"
+                    "@id": "9cb3361f-568c-4c12-8911-cb76f47dbbbb"
+                    label: "Verifier Agent"
+                    handshake_protocols:
+                      - "https://didcomm.org/didexchange/1.0"
+                    accept:
+                      - "didcomm/v2"
+                      - "didcomm/aip2;env=rfc19"
+                    services:
+                      - id: "#inline"
+                        type: "did-communication"
+                        recipientKeys:
+                          - "did:key:z6MkkJw5zkCaNyo9asr1b7UcA7MEuEdyYAMRZAjuTiNTo41d#z6MkkJw5zkCaNyo9asr1b7UcA7MEuEdyYAMRZAjuTiNTo41d"
+                        serviceEndpoint: "http://verifier:8070"
+                  contact_alias: DrX
+      responses:
+        "200":
+          description: Invitation accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InvitationAcceptResponse" }
+        "400":
+          description: Bad invitation URL/object
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          description: Missing/invalid tenant token (when using holder/verifier)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Alias already in use on an active connection
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnyObject" }
+
+  /agent/connections:
+    get:
+      tags: [Connections]
+      operationId: listConnections
+      summary: List connections
+      parameters:
+        - $ref: "#/components/parameters/TenantJwt"
+        - $ref: "#/components/parameters/SelectedPeer"
+      responses:
+        "200":
+          description: Connection list
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectionsListResponse" }
+        "401":
+          description: Missing/invalid tenant token (when using holder/verifier)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+    delete:
+      tags: [Connections]
+      operationId: deleteConnections
+      summary: Delete connections (by id, contact_alias, or all)
+      parameters:
+        - $ref: "#/components/parameters/TenantJwt"
+        - $ref: "#/components/parameters/SelectedPeer"
+        - name: id
+          in: query
+          required: false
+          schema: { type: string }
+          description: Delete a single connection by `connection_id`.
+        - name: contact_alias
+          in: query
+          required: false
+          schema: { type: string }
+          description: Delete by connection alias.
+        - name: state
+          in: query
+          required: false
+          schema: { type: string }
+          description: Optional state filter when deleting by contact_alias or deleting all.
+      responses:
+        "200":
+          description: Deleted connection ids
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectionsDeleteResponse" }
+        "401":
+          description: Missing/invalid tenant token (when using holder/verifier)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /agent/credentials/propose:
+    post:
+      tags: [Credentials]
+      operationId: proposeConsentCredential
+      summary: Holder proposes a Consent VC to the issuer
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantJwtRequired"
+        - $ref: "#/components/parameters/SelectedPeerHolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CredentialsProposeRequest" }
+            examples:
+              minimal:
+                value:
+                  issuer_alias: issuer
+                  consentId: "newtest5"
+                  requested_payload:
+                    test: "newtest123456"
+                  datasetIds:
+                    - health:phr
+                    - health:chronic_conditions
+                    - finance:insurance_underwriting_inputs
+                  durationDays: 1
+                  seed: "b64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+              autoConsentId:
+                value:
+                  issuer_alias: issuer
+                  requested_payload:
+                    test: "newtest123456"
+                  datasetIds:
+                    - health:phr
+                    - health:chronic_conditions
+                    - finance:insurance_underwriting_inputs
+                  durationDays: 1
+                  seed: "b64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+              withPublicKeyPem:
+                value:
+                  issuer_alias: issuer
+                  consentId: "newtest5"
+                  requested_payload:
+                    test: "newtest123456"
+                  datasetIds:
+                    - health:phr
+                    - health:chronic_conditions
+                    - finance:insurance_underwriting_inputs
+                  durationDays: 1
+                  publicKeyPem: "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"
+      responses:
+        "200":
+          description: Proposal submitted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CredentialsProposeResponse" }
+        "400":
+          description: Validation error (including invalid datasetIds)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnyObject" }
+        "401":
+          description: Missing/invalid tenant token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: consentId already exists
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnyObject" }
+
+  /agent/credentials/w3c:
+    get:
+      tags: [Credentials]
+      operationId: listW3cCredentials
+      summary: List holder W3C credentials
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantJwtRequired"
+        - $ref: "#/components/parameters/SelectedPeerHolder"
+      responses:
+        "200":
+          description: Credential list
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnyObject" }
+        "401":
+          description: Missing/invalid tenant token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /agent/credentials/w3c/{id}:
+    get:
+      tags: [Credentials]
+      operationId: getW3cCredential
+      summary: Get a single holder W3C credential by record id
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantJwtRequired"
+        - $ref: "#/components/parameters/SelectedPeerHolder"
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Credential record
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnyObject" }
+        "401":
+          description: Missing/invalid tenant token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /agent/proofs/request:
+    post:
+      tags: [Proofs]
+      operationId: requestProof
+      summary: Verifier requests a proof (consent presentation)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantJwtRequired"
+        - $ref: "#/components/parameters/SelectedPeerVerifier"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProofRequestRequest" }
+            examples:
+              minimal:
+                value:
+                  holder_alias: Alice
+                  request_label: "DrX consent for claim 123"
+                  requested_payload:
+                    labs: true
+                    imaging: true
+      responses:
+        "200":
+          description: Proof request created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProofRequestResponse" }
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          description: Missing/invalid tenant token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /agent/proofs/inbox:
+    get:
+      tags: [Proofs]
+      operationId: listProofInbox
+      summary: Holder views incoming proof requests
+      description: |-
+        Lists `present-proof-2.0` records in `request-received` state.
+
+        Use `verifier_alias` to filter by verifier connection alias. (Back-compat: `alias` is also accepted.)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantJwtRequired"
+        - $ref: "#/components/parameters/SelectedPeerHolder"
+        - name: connection_id
+          in: query
+          required: false
+          schema: { type: string }
+        - name: verifier_alias
+          in: query
+          required: false
+          schema: { type: string }
+          description: Filter by verifier connection alias.
+      responses:
+        "200":
+          description: Inbox results
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProofInboxResponse" }
+        "401":
+          description: Missing/invalid tenant token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /agent/proofs/send:
+    post:
+      tags: [Proofs]
+      operationId: sendProof
+      summary: Holder sends a proof (grant or deny)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantJwtRequired"
+        - $ref: "#/components/parameters/SelectedPeerHolder"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProofSendRequest" }
+            examples:
+              grantSpecific:
+                value:
+                  consentId: newtest5
+                  pres_ex_id: "727b1ee1-00e8-42a7-baac-55ec1055db34"
+              grantLatest:
+                value: {}
+              grantLatestByAlias:
+                value:
+                  verifier_alias: DrX
+              deny:
+                value:
+                  pres_ex_id: "727b1ee1-00e8-42a7-baac-55ec1055db34"
+                  deny: true
+                  reason: "Patient refused this access"
+                  remove: false
+              denyAndRemove:
+                value:
+                  pres_ex_id: "727b1ee1-00e8-42a7-baac-55ec1055db34"
+                  deny: true
+                  reason: "Patient refused this access"
+                  remove: true
+      responses:
+        "200":
+          description: Presentation sent (or denial sent)
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/ProofSendGrantResponse"
+                  - $ref: "#/components/schemas/ProofSendDenyResponse"
+              examples:
+                granted:
+                  value:
+                    peer: "2"
+                    pres_ex_id: "727b1ee1-00e8-42a7-baac-55ec1055db34"
+                    used_descriptor_id: consent_vc
+                    used_record_id: "74c2f03bfb134c9995fbefc0fc8935e3"
+                    used_consentId: newtest5
+                    resolved_alias: null
+                    resolved_connection_id: null
+                    result:
+                      state: presentation-sent
+                denied:
+                  value:
+                    peer: "2"
+                    pres_ex_id: "727b1ee1-00e8-42a7-baac-55ec1055db34"
+                    denied: true
+                    reason: "Patient refused this access"
+                    removed: false
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          description: Missing/invalid tenant token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: Pending request/alias not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: No candidates / not satisfiable
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnyObject" }
+
+  /agent/proofs/records:
+    get:
+      tags: [Proofs]
+      operationId: listProofRecords
+      summary: List proof exchange records (holder or verifier)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantJwtRequired"
+        - $ref: "#/components/parameters/SelectedPeerTenants"
+        - name: state
+          in: query
+          required: false
+          schema: { type: string }
+          description: Filter by ACA-Py proof state (e.g. `request-sent`, `request-received`, `done`).
+        - name: contact_alias
+          in: query
+          required: false
+          schema: { type: string }
+          description: Filter by connection alias.
+        - name: connection_id
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Proof records
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProofRecordsResponse" }
+        "401":
+          description: Missing/invalid tenant token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /agent/proofs/verify:
+    post:
+      tags: [Proofs]
+      operationId: verifyConsent
+      summary: Verifier verifies consent against chain (and logs audit trail)
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantJwtRequired"
+        - $ref: "#/components/parameters/SelectedPeerVerifier"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProofVerifyRequest" }
+            examples:
+              ok:
+                value:
+                  consentId: newtest5
+                  purpose: pcode001
+                  operation: ocode001
+      responses:
+        "200":
+          description: Consent is active/allowed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProofVerifyOkResponse" }
+              examples:
+                allowed:
+                  value:
+                    active: true
+                    consentId: newtest5
+                    issuerDid: "did:fabric:issuer"
+                    vp_verified: true
+                    chain:
+                      issuer_revoked: false
+                    consent_check:
+                      result: true
+                      reason: ok
+                      validUntil: "2026-02-12T10:09:06.712Z"
+        "400":
+          description: Missing consentId / bad request
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          description: Missing/invalid tenant token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "403":
+          description: Consent policy denied access
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnyObject" }
+              examples:
+                denied:
+                  value:
+                    error: consent_not_allowed
+                    message: Consent policy denied access.
+                    details:
+                      result: false
+                      reason: purpose_not_allowed
+        "404":
+          description: VP / consent not found
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnyObject" }
+        "409":
+          description: Not verified / revoked / expired / conflict
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AnyObject" }
+
+  /agent/proofs/revoke:
+    post:
+      tags: [Proofs]
+      operationId: revokeConsent
+      summary: Holder revokes consent on-chain
+      description: |-
+        Revokes a consent anchor on-chain.
+
+        Signing modes:
+        - Seed-based: server derives key from `seed` + `consentId`
+        - Private key PEM: server signs locally using `privateKeyPem`
+        - Externally-signed: provide `publicKeyPem` + `signature`
+
+        For externally-signed mode, the message is `${consentId}|${createdTimestamp}` (see `/signVcAnchorAction` helper).
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TenantJwtRequired"
+        - $ref: "#/components/parameters/SelectedPeerHolder"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProofRevokeRequest" }
+            examples:
+              seed:
+                value:
+                  consentId: newtest6
+                  seed: "b64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+              externallySigned:
+                value:
+                  consentId: newtest6
+                  publicKeyPem: "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----\n"
+                  signature: "<BASE64_SIGNATURE>"
+              privateKey:
+                value:
+                  consentId: newtest6
+                  privateKeyPem: "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProofRevokeResponse" }
+              examples:
+                ok:
+                  value:
+                    revoked: true
+                    consentId: newtest6
+                    message: VC anchor newtest6 revoked at 2026-02-11T10:12:38.707Z
+        "400":
+          description: Missing/invalid inputs
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
+          description: Missing/invalid tenant token
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
+          description: Consent not found on-chain
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409":
+          description: Consent already revoked / not active
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /deriveKeypair:
+    post:
+      tags: [Crypto]
+      operationId: deriveKeypair
+      summary: Deterministically derive an Ed25519 keypair from a seed and asset id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DeriveKeypairRequest" }
+            examples:
+              example:
+                value:
+                  seed: "b64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+                  assetId: newtest6
+      responses:
+        "200":
+          description: Derived keypair
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeriveKeypairResponse" }
+
+  /signVcAnchorAction:
+    post:
+      tags: [Crypto]
+      operationId: signVcAnchorAction
+      summary: Sign an on-chain VC anchor action (helper for external signatures)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SignVcAnchorActionRequest" }
+            examples:
+              example:
+                value:
+                  assetId: newtest6
+                  timestamp: "2026-02-11T10:09:06.712Z"
+                  privateKeyPem: "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+      responses:
+        "200":
+          description: Signature
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SignVcAnchorActionResponse" }

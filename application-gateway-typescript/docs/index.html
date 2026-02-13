@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Consentis Blackbox Gateway API Docs</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+    <style>
+      body { margin: 0; }
+      .swagger-ui .markdown code,
+      .swagger-ui .renderedMarkdown code {
+        background: transparent !important;
+        box-shadow: none !important;
+        padding: 0 !important;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
+    <script>
+      const updateTenantJwtVisibility = () => {
+        document.querySelectorAll(".opblock").forEach((opblock) => {
+          const peerRow = opblock.querySelector(
+            'tr[data-param-name="x-selected-peer"][data-param-in="header"]'
+          );
+          const tenantRow = opblock.querySelector(
+            'tr[data-param-name="x-tenant-jwt"][data-param-in="header"]'
+          );
+          if (!peerRow || !tenantRow) return;
+
+          const peerInput = peerRow.querySelector("select, input, textarea");
+          const peer = (peerInput?.value || "").trim().toLowerCase();
+          const isIssuer = peer === "issuer" || peer === "1";
+
+          tenantRow.style.display = isIssuer ? "none" : "";
+        });
+      };
+
+      window.onload = () => {
+        window.ui = SwaggerUIBundle({
+          url: "./openapi.yaml",
+          dom_id: "#swagger-ui",
+          deepLinking: true,
+          persistAuthorization: true,
+          requestInterceptor: (req) => {
+            // Convenience: allow users to paste a raw tenant JWT into `x-tenant-jwt`
+            // and send it as `Authorization: Bearer <jwt>`.
+            const headers = req.headers || {};
+            const tenant =
+              headers["x-tenant-jwt"] ||
+              headers["X-Tenant-Jwt"] ||
+              headers["X-TENANT-JWT"];
+
+            const hasAuth = headers["Authorization"] || headers["authorization"];
+            if (!hasAuth && typeof tenant === "string" && tenant.trim()) {
+              const v = tenant.trim();
+              headers["Authorization"] = v.toLowerCase().startsWith("bearer ") ? v : `Bearer ${v}`;
+            }
+
+            // Don’t forward the convenience header to the API
+            delete headers["x-tenant-jwt"];
+            delete headers["X-Tenant-Jwt"];
+            delete headers["X-TENANT-JWT"];
+
+            req.headers = headers;
+            return req;
+          },
+          presets: [
+            SwaggerUIBundle.presets.apis,
+            SwaggerUIStandalonePreset
+          ],
+          layout: "StandaloneLayout"
+        });
+
+        document.addEventListener("change", updateTenantJwtVisibility, true);
+        document.addEventListener("input", updateTenantJwtVisibility, true);
+        new MutationObserver(updateTenantJwtVisibility).observe(
+          document.getElementById("swagger-ui"),
+          { childList: true, subtree: true }
+        );
+        setTimeout(updateTenantJwtVisibility, 0);
+      };
+    </script>
+  </body>
+</html>
