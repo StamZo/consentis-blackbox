@@ -471,7 +471,8 @@ public async storeDIDDoc(ctx: Context, didID: string, didDocJson: string): Promi
         result,
         reason,                     // null on success; string on deny
         status: anchor.status,      // "active" | "revoked" | "expired"
-        validUntil: anchor.validUntil
+        validUntil: anchor.validUntil,
+        txId
     };
     return JSON.stringify(payload);
     }
