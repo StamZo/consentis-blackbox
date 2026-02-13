@@ -89,6 +89,9 @@ export function generateConsentPolicy(body: any) {
 
   // 2) Compute templateHash
   const canonicalTemplate = canonicalize(templateSchema);
+  if (canonicalTemplate === undefined) {
+    throw new Error(`Failed to canonicalize template schema for version v${version}`);
+  }
   const templateHash = sha256(canonicalTemplate);
 
   // 3) Prepare src allowing durationDays→durationSecs convenience
@@ -116,6 +119,9 @@ export function generateConsentPolicy(body: any) {
 
   // 6) Hash policy
   const canonicalPolicy = canonicalize(policyJson);
+  if (canonicalPolicy === undefined) {
+    throw new Error('Failed to canonicalize policy');
+  }
   const policyHash = sha256(canonicalPolicy);
 
   // 7) Build atoms for Fabric (issuer will pass these when creating the anchor)
@@ -130,4 +136,77 @@ export function generateConsentPolicy(body: any) {
     assuranceLevel: policyJson.assuranceLevel ?? null,
     constraintsSet
   };
+}
+
+const MAX_DURATION_SECS = Number(process.env.CONSENT_MAX_DURATION_SECS ?? 3 * 365 * 24 * 60 * 60);
+
+export function validatePolicyForDeployment(policyJson: any) {
+  if (!policyJson || typeof policyJson !== 'object') {
+    throw new Error('Policy is missing or invalid');
+  }
+  const purposes = Array.isArray(policyJson.purposes) ? policyJson.purposes : [];
+  const operations = Array.isArray(policyJson.operations) ? policyJson.operations : [];
+  if (purposes.length === 0) throw new Error('Policy must include at least one purpose');
+  if (operations.length === 0) throw new Error('Policy must include at least one operation');
+
+  const durationSecs = Number(policyJson.durationSecs);
+  if (!Number.isFinite(durationSecs) || durationSecs <= 0) {
+    throw new Error('Policy durationSecs is missing or invalid');
+  }
+  if (durationSecs > MAX_DURATION_SECS) {
+    throw new Error(`Policy durationSecs exceeds max of ${MAX_DURATION_SECS}`);
+  }
+
+  if (policyJson.legalFlags && policyJson.legalFlags.freelyGiven === false) {
+    throw new Error('Policy legalFlags.freelyGiven must not be false');
+  }
+  return true;
+}
+
+export function generateContractDescriptor(input: {
+  policyJson: any;
+  policyHash: string;
+  templateHash?: string;
+  templateVersion?: string;
+  datasetIds: string[];
+  issuerOrgId?: string | null;
+  context?: any;
+  descriptorVersion?: string;
+}) {
+  const normArray = (arr: any[]) =>
+    Array.from(new Set((arr || []).map(x => String(x).trim()).filter(Boolean)));
+
+  const datasetIds = normArray(input.datasetIds);
+  if (datasetIds.length === 0) {
+    throw new Error('datasetIds are required for a contract descriptor');
+  }
+
+  const purposes = normArray(input.policyJson?.purposes || []);
+  const operations = normArray(input.policyJson?.operations || []);
+
+  const descriptor: any = {
+    '@context': input.context || undefined,
+    type: 'ConsentContractDescriptor',
+    descriptorVersion: input.descriptorVersion || 'v1',
+    policyHash: input.policyHash,
+    templateHash: input.templateHash,
+    templateVersion: input.templateVersion,
+    datasetIds,
+    purposes,
+    operations,
+    durationSecs: input.policyJson?.durationSecs,
+    assuranceLevel: input.policyJson?.assuranceLevel ?? null,
+    legalFlags: input.policyJson?.legalFlags ?? undefined,
+    issuerOrgId: input.issuerOrgId ?? null,
+    createdAt: new Date().toISOString()
+  };
+
+  // strip undefined so hash is stable
+  const cleaned = JSON.parse(JSON.stringify(descriptor));
+  const canonical = canonicalize(cleaned);
+  if (canonical === undefined) {
+    throw new Error('Failed to canonicalize contract descriptor');
+  }
+  const descriptorHash = sha256(canonical);
+  return { descriptorJson: cleaned, descriptorHash };
 }
