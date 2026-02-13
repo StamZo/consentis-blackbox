@@ -1,4 +1,5 @@
 import * as nano from 'nano'; // Ensure @types/nano installed: npm i @types/nano
+import * as crypto from 'crypto';
 // docker run -d --name consentis-couch \
 //   -e COUCHDB_USER=admin \
 //   -e COUCHDB_PASSWORD=secret \
@@ -27,9 +28,66 @@ interface PolicyDocument {
   policyJson: string;
   createdAt: string;
   templateHash?: string;
+  templateVersion?: string;
 }
 
-let db: nano.DocumentScope<PolicyDocument>;
+interface ContractDescriptorDocument {
+  _id: string;
+  docType: 'contractDescriptor';
+  descriptorHash: string;
+  descriptorJson: any;
+  policyHash: string;
+  templateHash?: string;
+  templateVersion?: string;
+  datasetIds: string[];
+  purposes: string[];
+  operations: string[];
+  durationSecs?: number;
+  assuranceLevel?: string | null;
+  issuerOrgId?: string | null;
+  createdAt: string;
+}
+
+interface AuditEventDocument {
+  _id: string;
+  docType: 'auditEvent';
+  consentId: string;
+  policyHash?: string;
+  requesterOrg?: string | null;
+  purposes?: string[];
+  operations?: string[];
+  result?: boolean;
+  reason?: string | null;
+  txId?: string | null;
+  createdAt: string;
+}
+
+let db: nano.DocumentScope<any>;
+
+const nowIso = () => new Date().toISOString();
+const makeId = (prefix: string) =>
+  `${prefix}:${Date.now()}:${crypto.randomBytes(6).toString('hex')}`;
+
+async function ensureIndexes() {
+  if (!db) return;
+  const indexes = [
+    { name: 'docType', fields: ['docType'] },
+    { name: 'docType_policyHash', fields: ['docType', 'policyHash'] },
+    { name: 'docType_descriptorHash', fields: ['docType', 'descriptorHash'] },
+    { name: 'docType_datasetIds', fields: ['docType', 'datasetIds'] },
+    { name: 'docType_purposes', fields: ['docType', 'purposes'] },
+    { name: 'docType_operations', fields: ['docType', 'operations'] },
+    { name: 'docType_consentId', fields: ['docType', 'consentId'] },
+    { name: 'docType_createdAt', fields: ['docType', 'createdAt'] }
+  ];
+  for (const idx of indexes) {
+    try {
+      await db.createIndex({ index: { fields: idx.fields }, name: idx.name });
+    } catch {
+      // ignore index creation errors (e.g., already exists)
+    }
+  }
+}
 
 async function initDb() {
   try {
@@ -48,6 +106,7 @@ async function initDb() {
     }
 
     db = couch.use(dbName);
+    await ensureIndexes();
     console.log('CouchDB connected');
   } catch (error: unknown) {
     console.error('CouchDB error:', error);
@@ -58,10 +117,7 @@ async function initDb() {
 
 initDb();
 
-
-initDb(); // Startup init
-
-export async function savePolicy(policyHash: string, policyJson: string, templateHash?: string) {
+export async function savePolicy(policyHash: string, policyJson: string, templateHash?: string, templateVersion?: string) {
   try {
     const doc: PolicyDocument = {
       _id: policyHash, // Use hash as _id (unique)
@@ -69,6 +125,7 @@ export async function savePolicy(policyHash: string, policyJson: string, templat
       createdAt: new Date().toISOString()
     };
      if (templateHash) doc.templateHash = templateHash; 
+     if (templateVersion) doc.templateVersion = templateVersion;
     const response = await db.insert(doc);
     console.log(`Policy saved: ${policyHash}, rev: ${response.rev}`);
   } catch (error: unknown) {
@@ -102,3 +159,88 @@ export async function deletePolicyByHash(policyHash: string) {
     throw error;
   }
 }
+
+export async function saveContractDescriptor(input: Omit<ContractDescriptorDocument, '_id' | 'docType' | 'createdAt'> & { _id?: string }) {
+  const _id = input._id || `contract:${input.descriptorHash}`;
+  try {
+    const existing = await db.get(_id);
+    return existing;
+  } catch (e: any) {
+    if (e?.statusCode !== 404) throw e;
+  }
+  const doc: ContractDescriptorDocument = {
+    _id,
+    docType: 'contractDescriptor',
+    descriptorHash: input.descriptorHash,
+    descriptorJson: input.descriptorJson,
+    policyHash: input.policyHash,
+    templateHash: input.templateHash,
+    templateVersion: input.templateVersion,
+    datasetIds: input.datasetIds,
+    purposes: input.purposes,
+    operations: input.operations,
+    durationSecs: input.durationSecs,
+    assuranceLevel: input.assuranceLevel ?? null,
+    issuerOrgId: input.issuerOrgId ?? null,
+    createdAt: nowIso()
+  };
+  await db.insert(doc);
+  return doc;
+}
+
+export async function getContractDescriptorByHash(descriptorHash: string) {
+  const id = `contract:${descriptorHash}`;
+  try {
+    return await db.get(id);
+  } catch (e: any) {
+    if (e?.statusCode === 404) return null;
+    throw e;
+  }
+}
+
+export async function findContractDescriptors(filters: {
+  datasetId?: string;
+  purpose?: string;
+  operation?: string;
+  issuerOrgId?: string;
+  templateVersion?: string;
+  limit?: number;
+}) {
+  const selector: any = { docType: 'contractDescriptor' };
+  if (filters.datasetId) selector.datasetIds = { $in: [filters.datasetId] };
+  if (filters.purpose) selector.purposes = { $in: [filters.purpose] };
+  if (filters.operation) selector.operations = { $in: [filters.operation] };
+  if (filters.issuerOrgId) selector.issuerOrgId = filters.issuerOrgId;
+  if (filters.templateVersion) selector.templateVersion = filters.templateVersion;
+
+  const res = await db.find({ selector, limit: filters.limit || 200 });
+  return res.docs || [];
+}
+
+export async function saveAuditEvent(input: Omit<AuditEventDocument, '_id' | 'docType' | 'createdAt'> & { _id?: string }) {
+  const doc: AuditEventDocument = {
+    _id: input._id || makeId('audit'),
+    docType: 'auditEvent',
+    consentId: input.consentId,
+    policyHash: input.policyHash,
+    requesterOrg: input.requesterOrg ?? null,
+    purposes: input.purposes ?? [],
+    operations: input.operations ?? [],
+    result: input.result,
+    reason: input.reason ?? null,
+    txId: input.txId ?? null,
+    createdAt: nowIso()
+  };
+  await db.insert(doc);
+  return doc;
+}
+
+export async function listAuditEvents(consentId: string, limit = 200) {
+  const res = await db.find({
+    selector: { docType: 'auditEvent', consentId },
+    limit
+  });
+  return res.docs || [];
+}
+
+// consent evidence/history removed (optional GA coverage; use ACA-Py/chain instead)
