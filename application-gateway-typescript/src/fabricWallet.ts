@@ -100,7 +100,8 @@ export async function setupWallet(selected_peer: string, username: string): Prom
                 console.log(`Identity for ${identityLabel} added to wallet`);
             } catch (err) {
                 console.error(`Failed to read keys or certificate for ${adjustedUsername}:`, err);
-                throw new Error(`Error setting up wallet: ${err.message}`);
+                const message = err instanceof Error ? err.message : String(err);
+                throw new Error(`Error setting up wallet: ${message}`);
             }
         }
 
@@ -114,7 +115,8 @@ export async function setupWallet(selected_peer: string, username: string): Prom
         return wallet;
     } catch (error) {
         console.error("Error setting up wallet: ", error);
-        throw new Error(`Error setting up wallet: ${error.message}`);
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Error setting up wallet: ${message}`);
     }
 }
 
@@ -131,12 +133,17 @@ export async function addIdentity(caClient: FabricCAServices, selectedPeer: stri
         if (userIdentity) {
             console.log(`An identity for the user ${userIdLower} already exists in the wallet. Re-enrolling...`);
 
-            const adminIdentity = await wallet.get(adminUserId);
+            let adminIdentity = await wallet.get(adminUserId);
             if (!adminIdentity) {
                 console.log(`An identity for the admin user does not exist in the wallet. Enrolling admin...`);
                 const ccp = buildCCP(Number(selectedPeer));
                 const caClient = buildCAClient(FabricCAServices, ccp, `ca.org${selectedPeer}.example.com`);
                 await enrollAdmin(caClient, selectedPeer);
+                adminIdentity = await wallet.get(adminUserId);
+            }
+
+            if (!adminIdentity) {
+                throw new Error('Failed to enroll admin user');
             }
 
             const provider = wallet.getProviderRegistry().getProvider(adminIdentity.type);
@@ -167,7 +174,11 @@ export async function addIdentity(caClient: FabricCAServices, selectedPeer: stri
             adminIdentity = await wallet.get(adminUserId);
         }
 
-        const provider = wallet.getProviderRegistry().getProvider(adminIdentity.type);
+        if (!adminIdentity) {
+            throw new Error('Failed to enroll admin user');
+        }
+
+        const provider = wallet.getProviderRegistry().getProvider(adminIdentity!.type);
         const adminUser = await provider.getUserContext(adminIdentity, adminUserId);
 
         const secret = await caClient.register({
