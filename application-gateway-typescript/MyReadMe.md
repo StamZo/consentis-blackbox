@@ -34,8 +34,8 @@ Minimal example (v4):
 
 ```json
 {
-  "purposes": ["treatment"],
-  "operations": ["read"],
+  "purposes": ["pcode001"],
+  "operations": ["ocode001"],
   "durationSecs": 31536000,
   "assuranceLevel": "AL3",
   "legalFlags": { "freelyGiven": true },
@@ -80,8 +80,8 @@ Stored fields (simplified):
 
 ```json
 {
-  "purposes": "treatment",
-  "operations": "read",
+  "purposes": "pcode001",
+  "operations": "ocode001",
   "durationDays": 365,
   "assuranceLevel": "AL3",
   "legalFlags": { "freelyGiven": true },
@@ -149,7 +149,7 @@ CreateVcAnchorV2(
 ```json
 {
   "assetId": "asset-123",
-  "accessRequest": "{\"purpose\":[\"treatment\"],\"operation\":[\"read\"],\"constraints\":{}}"
+  "accessRequest": "{\"purpose\":[\"pcode001\"],\"operation\":[\"read\"],\"constraints\":{}}"
 }
 ```
 
@@ -269,7 +269,7 @@ sequenceDiagram
    * Feed `assetId`, `publicKeyPem`, `policyHash` → success.
 3. **Verify** (Org3):
 
-   * Allowed: `{purpose:["treatment"], operation:["read"]}` → `result:true`.
+   * Allowed: `{purpose:["pcode001"], operation:["ocode001"]}` → `result:true`.
    * Denied: `{purpose:["marketing"], operation:["write"]}` → `result:false`, audit logged.
 4. **Expiration**: set small `durationSecs`, verify after expiry → `status:"expired"`, denied but logged.
 
@@ -297,8 +297,8 @@ sequenceDiagram
 
 ```json
 {
-  "purposes": "treatment",
-  "operations": "read",
+  "purposes": "pcode001",
+  "operations": "ocode001",
   "durationDays": 365,
   "assuranceLevel": "AL3",
   "legalFlags": { "freelyGiven": true },
@@ -326,7 +326,7 @@ CreateVcAnchorV2(
 ```json
 {
   "assetId": "asset-123",
-  "accessRequest": "{\"purpose\":[\"treatment\"],\"operation\":[\"read\"],\"constraints\":{}}"
+  "accessRequest": "{\"purpose\":[\"pcode001\"],\"operation\":[\"read\"],\"constraints\":{}}"
 }
 ```
 
