@@ -35,7 +35,16 @@ import {
 
 
 
-import { savePolicy, getPolicyByHash, deletePolicyByHash} from './retention';
+import {
+  savePolicy,
+  getPolicyByHash,
+  deletePolicyByHash,
+  saveContractDescriptor,
+  getContractDescriptorByHash,
+  findContractDescriptors,
+  saveAuditEvent,
+  listAuditEvents
+} from './retention';
 
 import {
   deriveEd25519FromSeed,
@@ -47,7 +56,7 @@ import {
   prettyJSONString,
 } from "./AppUtil";
 
-import { generateConsentPolicy } from "./generator";
+import { generateConsentPolicy, generateContractDescriptor, validatePolicyForDeployment } from "./generator";
 
 import {
   setupWallet,
@@ -59,6 +68,7 @@ import {
 // --- Auth middleware (inline for now) ---
 import jwt from "jsonwebtoken";
 import { resolvePeer } from "./helper/peers";
+import { validateDatasetIds } from "./helper/datasetIds";
 
 const KEYCLOAK_URL = process.env.KEYCLOAK_URL || "";
 
@@ -359,6 +369,30 @@ app.post("/verifyAndLogAccess", async (req, res) => {
     }
     const payload: any = req.userPayload;
     const out = await verifyAndLogAccessOnFabric(payload, assetId, accessRequest);
+    try {
+      let reqObj: any = {};
+      try {
+        reqObj = typeof accessRequest === 'string' ? JSON.parse(accessRequest) : accessRequest;
+      } catch {
+        reqObj = {};
+      }
+      const toArr = (x: any) => Array.isArray(x) ? x : (x == null ? [] : [x]);
+      const norm = (s: string) => String(s).trim().toLowerCase();
+      const purposes = toArr(reqObj?.purpose).map(norm).filter(Boolean);
+      const operations = toArr(reqObj?.operation).map(norm).filter(Boolean);
+      const requesterOrg = payload?.selected_peer ? `Org${payload.selected_peer}` : null;
+      await saveAuditEvent({
+        consentId: String(assetId),
+        requesterOrg,
+        purposes,
+        operations,
+        result: out?.result === true,
+        reason: out?.reason ?? null,
+        txId: out?.txId ?? null
+      });
+    } catch (e) {
+      console.warn('audit logging failed:', e);
+    }
     return res.json(out);
   } catch (err: any) {
     console.error("verifyAndLogAccess error:", err);
@@ -399,7 +433,7 @@ app.post("/upsertConsentPolicy", async (req, res) => {
       });
     }
 
-    await savePolicy(policyHash, JSON.stringify(policyJson), templateHash);
+    await savePolicy(policyHash, JSON.stringify(policyJson), templateHash, templateVersion);
     return res.json({
       policyJson,
       policyHash,
@@ -436,6 +470,126 @@ app.post("/deletePolicyByHash/:hash", async (req, res) => {
   } catch (err: any) {
     console.error("deletePolicyByHash error:", err);
     res.status(500).json({ error: err?.message || "Failed to delete policy" });
+  }
+});
+
+// ----------------------------------------------------------------------------
+// Contract descriptors (Generator + Finder)
+// ----------------------------------------------------------------------------
+
+app.post("/upsertContractDescriptor", async (req, res) => {
+  try {
+    const {
+      policyHash,
+      datasetIds,
+      datasetId,
+      issuerOrgId,
+      context,
+      descriptorVersion,
+      templateVersion
+    } = req.body || {};
+
+    if (!policyHash) return res.status(400).json({ error: "policyHash is required" });
+    const ds = Array.isArray(datasetIds) ? datasetIds : (datasetId ? [datasetId] : []);
+    if (!ds || ds.length === 0) return res.status(400).json({ error: "datasetIds (array) or datasetId is required" });
+    const vds = validateDatasetIds(ds);
+    if (!vds.ok) return res.status(400).json(vds);
+
+    const policyDoc: any = await getPolicyByHash(policyHash);
+    if (!policyDoc) return res.status(404).json({ error: "Policy not found" });
+
+    const policyJson = typeof policyDoc.policyJson === "string"
+      ? JSON.parse(policyDoc.policyJson)
+      : policyDoc.policyJson;
+
+    validatePolicyForDeployment(policyJson);
+
+    const payload: any = req.userPayload;
+    const issuer = issuerOrgId || (payload?.selected_peer ? `Org${payload.selected_peer}` : null);
+    const tplHash = policyDoc.templateHash || policyJson.templateHash;
+    const tplVersion = policyDoc.templateVersion || templateVersion || undefined;
+
+    const { descriptorJson, descriptorHash } = generateContractDescriptor({
+      policyJson,
+      policyHash,
+      templateHash: tplHash,
+      templateVersion: tplVersion,
+      datasetIds: vds.datasetIds || ds,
+      issuerOrgId: issuer,
+      context,
+      descriptorVersion
+    });
+
+    const existing = await getContractDescriptorByHash(descriptorHash);
+    if (existing) {
+      return res.json({ descriptorHash, descriptorJson: existing.descriptorJson || descriptorJson, existed: true });
+    }
+
+    await saveContractDescriptor({
+      descriptorHash,
+      descriptorJson,
+      policyHash,
+      templateHash: tplHash,
+      templateVersion: tplVersion,
+      datasetIds: descriptorJson.datasetIds || (vds.datasetIds || ds),
+      purposes: descriptorJson.purposes || policyJson.purposes || [],
+      operations: descriptorJson.operations || policyJson.operations || [],
+      durationSecs: policyJson.durationSecs,
+      assuranceLevel: policyJson.assuranceLevel ?? null,
+      issuerOrgId: issuer
+    });
+
+    return res.json({ descriptorHash, descriptorJson, existed: false });
+  } catch (err: any) {
+    console.error("upsertContractDescriptor error:", err);
+    res.status(500).json({ error: err?.message || "Failed to upsert contract descriptor" });
+  }
+});
+
+app.get("/getContractDescriptor/:hash", async (req, res) => {
+  try {
+    const doc = await getContractDescriptorByHash(req.params.hash);
+    if (!doc) return res.status(404).json({ error: "Not found" });
+    return res.json(doc);
+  } catch (err: any) {
+    console.error("getContractDescriptor error:", err);
+    res.status(500).json({ error: err?.message || "Failed to fetch contract descriptor" });
+  }
+});
+
+app.post("/findContracts", async (req, res) => {
+  try {
+    const { datasetId, purpose, operation, issuerOrgId, templateVersion, limit } = req.body || {};
+    if (!datasetId && !purpose && !operation) {
+      return res.status(400).json({ error: "At least one of datasetId, purpose, operation is required" });
+    }
+    const docs = await findContractDescriptors({
+      datasetId,
+      purpose,
+      operation,
+      issuerOrgId,
+      templateVersion,
+      limit
+    });
+    return res.json({ count: docs.length, results: docs });
+  } catch (err: any) {
+    console.error("findContracts error:", err);
+    res.status(500).json({ error: err?.message || "Failed to find contracts" });
+  }
+});
+
+// ----------------------------------------------------------------------------
+// Off-chain audit
+// ----------------------------------------------------------------------------
+
+app.get("/audit/access/:consentId", async (req, res) => {
+  try {
+    const consentId = req.params.consentId;
+    const docs = await listAuditEvents(consentId);
+    return res.json({ count: docs.length, results: docs });
+  } catch (err: any) {
+    console.error("listAuditEvents error:", err);
+    res.status(500).json({ error: err?.message || "Failed to list audit events" });
   }
 });
 
@@ -600,6 +754,8 @@ app.post("/anchors/create", async (req, res) => {
       consentId,
       purposes,
       operations,
+      datasetIds,
+      datasetId,
       durationDays,
       assuranceLevel = "AL1", // fallback "AL1"
       version = "3",          // fallback "3"
@@ -629,6 +785,43 @@ app.post("/anchors/create", async (req, res) => {
       constraintsSet
     } = generateConsentPolicy(genIn);
 
+    // Optional: create contract descriptor for Finder (off-chain)
+    let descriptorHash: string | null = null;
+    try {
+      const ds = Array.isArray(datasetIds) ? datasetIds : (datasetId ? [datasetId] : []);
+      if (ds && ds.length > 0) {
+        const vds = validateDatasetIds(ds);
+        if (!vds.ok) throw vds;
+        validatePolicyForDeployment(policyJson);
+        const payload: any = req.userPayload;
+        const issuerOrgId = payload?.selected_peer ? `Org${payload.selected_peer}` : null;
+        const { descriptorJson, descriptorHash: dHash } = generateContractDescriptor({
+          policyJson,
+          policyHash,
+          templateHash,
+          templateVersion,
+          datasetIds: vds.datasetIds || ds,
+          issuerOrgId
+        });
+        await saveContractDescriptor({
+          descriptorHash: dHash,
+          descriptorJson,
+          policyHash,
+          templateHash,
+          templateVersion,
+          datasetIds: descriptorJson.datasetIds || (vds.datasetIds || ds),
+          purposes: descriptorJson.purposes || policyJson.purposes || [],
+          operations: descriptorJson.operations || policyJson.operations || [],
+          durationSecs: policyJson.durationSecs,
+          assuranceLevel: policyJson.assuranceLevel ?? null,
+          issuerOrgId
+        });
+        descriptorHash = dHash;
+      }
+    } catch (e) {
+      console.warn('contract descriptor creation skipped/failed:', e);
+    }
+
     // Idempotent save: if exists return stored; else save new
     const existing: any = await getPolicyByHash(policyHash);
     let effectivePolicy = policyJson;
@@ -641,7 +834,7 @@ app.post("/anchors/create", async (req, res) => {
         : existing.policyJson;
       effectiveTemplateHash = existing.templateHash || templateHash;
     } else {
-      await savePolicy(policyHash, JSON.stringify(policyJson), templateHash);
+      await savePolicy(policyHash, JSON.stringify(policyJson), templateHash, templateVersion);
     }
 
     // 2) Create anchor on Fabric (reuses your services/ledger)
@@ -655,6 +848,7 @@ app.post("/anchors/create", async (req, res) => {
       ok: true,
       consentId,
       anchor: anchorResp, // whatever the chaincode returns
+      descriptorHash,
       policy: {
         policyHash,
         templateHash: effectiveTemplateHash,
